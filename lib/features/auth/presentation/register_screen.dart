@@ -197,7 +197,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   // ── Eyebrow Label ─────────────────────────────────────────
                   Center(
                     child: Text(
-                      'GET STARTED WITH MYLOGS',
+                      'GET STARTED WITH LOGSPAD',
                       style: AppTypography.labelEyebrow.copyWith(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w700,

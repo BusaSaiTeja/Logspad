@@ -71,7 +71,7 @@ class GoogleBooksService {
 
     try {
       final response = await http
-          .get(uri, headers: {'User-Agent': 'MyLogsApp/1.0 (Mobile App)'})
+          .get(uri, headers: {'User-Agent': 'LogspadApp/1.0 (Mobile App)'})
           .timeout(const Duration(seconds: 7));
 
       if (response.statusCode != 200) {
@@ -117,11 +117,74 @@ class GoogleBooksService {
       if (list.isNotEmpty) {
         if (_cache.length > 50) _cache.clear();
         _cache[cacheKey] = list;
+        return list;
       }
-      return list;
     } catch (e) {
       if (kDebugMode) print('[OpenLibrary Error]: $e');
-      return [];
     }
+
+    // Fallback: Google Books API
+    try {
+      final fallbackResults = await _searchGoogleBooksFallback(queryParts.join(' '));
+      if (fallbackResults.isNotEmpty) {
+        if (_cache.length > 50) _cache.clear();
+        _cache[cacheKey] = fallbackResults;
+        return fallbackResults;
+      }
+    } catch (e) {
+      if (kDebugMode) print('[GoogleBooks Fallback Error]: $e');
+    }
+
+    return [];
+  }
+
+  /// Google Books API fallback (Free, 99.9% uptime).
+  Future<List<GoogleBookSuggestion>> _searchGoogleBooksFallback(String query) async {
+    final uri = Uri.https('www.googleapis.com', '/books/v1/volumes', {
+      'q': query,
+      'maxResults': '10',
+    });
+
+    final res = await http.get(uri).timeout(const Duration(seconds: 5));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final items = data['items'] as List<dynamic>?;
+      if (items == null || items.isEmpty) return [];
+
+      return items.map((item) {
+        final vol = (item as Map<String, dynamic>)['volumeInfo'] as Map<String, dynamic>? ?? {};
+        final id = item['id'] as String? ?? UniqueKey().toString();
+        final title = vol['title'] as String? ?? 'Untitled';
+        final authors = (vol['authors'] as List?)?.cast<String>() ?? [];
+        final authorStr = authors.isNotEmpty ? authors.take(2).join(', ') : 'Unknown Author';
+
+        final imageLinks = vol['imageLinks'] as Map<String, dynamic>?;
+        var coverUrl = (imageLinks?['thumbnail'] ?? imageLinks?['smallThumbnail']) as String?;
+        if (coverUrl != null && coverUrl.startsWith('http://')) {
+          coverUrl = coverUrl.replaceFirst('http://', 'https://');
+        }
+
+        final pages = vol['pageCount'] as int?;
+        final categories = (vol['categories'] as List?)?.cast<String>() ?? [];
+        final rawLang = vol['language'] as String?;
+        final langFull = rawLang != null
+            ? (_isoLanguageMap[rawLang.toLowerCase()] ?? rawLang.toUpperCase())
+            : null;
+
+        final description = vol['description'] as String?;
+
+        return GoogleBookSuggestion(
+          id: id,
+          title: title,
+          author: authorStr,
+          coverUrl: coverUrl,
+          pageCount: pages,
+          categories: categories,
+          language: langFull,
+          description: description,
+        );
+      }).toList();
+    }
+    return [];
   }
 }

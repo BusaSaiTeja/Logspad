@@ -45,7 +45,7 @@ class SettingsScreen extends StatelessWidget {
           Center(
             child: Column(
               children: [
-                Text('MyLog', style: AppTypography.headlineMd.copyWith(color: AppColors.primary)),
+                Text('Logspad', style: AppTypography.headlineMd.copyWith(color: AppColors.primary)),
                 const SizedBox(height: 4),
                 Text('Version 1.0.0 — Phase 1 (Local)', style: AppTypography.bodyMdOutline()),
                 const SizedBox(height: 4),

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:my_logs/features/watch/data/jikan_anime_service.dart' as jikan;
 
 class AnimeSearchResult {
   const AnimeSearchResult({
@@ -60,7 +61,7 @@ class AniListAnimeService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'User-Agent': 'MyLogsApp/1.0 (Flutter)',
+          'User-Agent': 'LogspadApp/1.0 (Flutter)',
         },
         body: jsonEncode({
           'query': queryBody,
@@ -125,6 +126,25 @@ class AniListAnimeService {
         print('[AniList] Error searching anime for "$cleanQuery": $e');
       }
     }
+
+    // Fallback: Jikan API (MyAnimeList dataset, 100% Free)
+    try {
+      final jikanService = jikan.JikanAnimeService(client: _client);
+      final jikanList = await jikanService.searchAnime(cleanQuery);
+      if (jikanList.isNotEmpty) {
+        return jikanList.map((item) => AnimeSearchResult(
+          title: item.title,
+          totalEpisodes: item.totalEpisodes,
+          year: item.year,
+          posterUrl: item.posterUrl,
+          synopsis: item.synopsis,
+          genres: item.genres,
+        )).toList();
+      }
+    } catch (e) {
+      if (kDebugMode) print('[Jikan Anime Fallback] Error: $e');
+    }
+
     return [];
   }
 }

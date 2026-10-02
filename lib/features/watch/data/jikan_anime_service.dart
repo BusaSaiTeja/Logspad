@@ -38,7 +38,7 @@ class JikanAnimeService {
     try {
       final response = await _client.get(
         uri,
-        headers: {'User-Agent': 'MyLogsApp/1.0 (Flutter)'},
+        headers: {'User-Agent': 'LogspadApp/1.0 (Flutter)'},
       ).timeout(const Duration(seconds: 8));
 
       if (kDebugMode) {

@@ -27,7 +27,7 @@ class TmdbService {
   TmdbService({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
-  static const String _omdbApiKey = String.fromEnvironment('OMDB_API_KEY');
+  static const String _omdbApiKey = ApiConfig.omdbApiKey;
 
   static const Map<int, String> _genreMap = {
     28: 'Action',
@@ -54,12 +54,22 @@ class TmdbService {
     10765: 'Sci-Fi & Fantasy',
   };
 
-  /// Searches movies with automatic OMDB + TMDB fallback for 100% global reliability.
+  /// Searches movies with automatic multi-tier fallbacks: TMDB -> OMDB -> TVMaze.
   Future<List<TmdbSearchResult>> searchMovies(String title) async {
     final cleanQuery = title.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (cleanQuery.isEmpty) return [];
 
-    // Try OMDB first (Universal CDN, no ISP blocks in Asia/India)
+    // Tier 1: Try TMDB Movies (High-res posters, official synopsis & genres)
+    try {
+      final tmdbResults = await _searchTmdbMovies(cleanQuery);
+      if (tmdbResults.isNotEmpty) {
+        return tmdbResults;
+      }
+    } catch (e) {
+      if (kDebugMode) print('[TMDB Movie] Error: $e');
+    }
+
+    // Tier 2: Try OMDB (Universal CDN, IMDb IDs, fast fallback)
     try {
       final omdbResults = await _searchOmdb(cleanQuery);
       if (omdbResults.isNotEmpty) {
@@ -69,14 +79,14 @@ class TmdbService {
       if (kDebugMode) print('[OMDB] Error: $e');
     }
 
-    // Fallback to TMDB
+    // Tier 3: Try TVMaze (100% Free, NO API key required, zero ISP blocks)
     try {
-      final tmdbResults = await _searchTmdbMovies(cleanQuery);
-      if (tmdbResults.isNotEmpty) {
-        return tmdbResults;
+      final tvMazeResults = await _searchTvMaze(cleanQuery);
+      if (tvMazeResults.isNotEmpty) {
+        return tvMazeResults;
       }
     } catch (e) {
-      if (kDebugMode) print('[TMDB] Error: $e');
+      if (kDebugMode) print('[TVMaze] Error: $e');
     }
 
     return [];
@@ -188,7 +198,7 @@ class TmdbService {
     final response = await _client.get(
       uri,
       headers: {
-        'User-Agent': 'MyLogsApp/1.0 (Flutter)',
+        'User-Agent': 'LogspadApp/1.0 (Flutter)',
         'Accept': 'application/json',
       },
     ).timeout(const Duration(seconds: 6));
@@ -232,11 +242,22 @@ class TmdbService {
     return [];
   }
 
-  /// Searches TMDB for TV Shows and Anime series by title.
+  /// Searches TMDB, OMDB, and TVMaze for TV Shows and Anime series by title.
   Future<List<TmdbSearchResult>> searchTv(String title) async {
     final cleanQuery = title.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (cleanQuery.isEmpty) return [];
 
+    // Tier 1: TMDB TV Search
+    try {
+      final tmdbTvResults = await _searchTmdbTv(cleanQuery);
+      if (tmdbTvResults.isNotEmpty) {
+        return tmdbTvResults;
+      }
+    } catch (e) {
+      if (kDebugMode) print('[TMDB TV] Error: $e');
+    }
+
+    // Tier 2: OMDB
     try {
       final omdbResults = await _searchOmdb(cleanQuery);
       if (omdbResults.isNotEmpty) {
@@ -244,6 +265,117 @@ class TmdbService {
       }
     } catch (_) {}
 
+    // Tier 3: TVMaze (Zero API Key needed)
+    try {
+      final tvMazeResults = await _searchTvMaze(cleanQuery);
+      if (tvMazeResults.isNotEmpty) {
+        return tvMazeResults;
+      }
+    } catch (_) {}
+
+    return [];
+  }
+
+  /// TMDB TV Show & Anime Search
+  Future<List<TmdbSearchResult>> _searchTmdbTv(String cleanQuery) async {
+    if (ApiConfig.tmdbApiKey.isEmpty) return [];
+
+    final uri = Uri.https('api.themoviedb.org', '/3/search/tv', {
+      'api_key': ApiConfig.tmdbApiKey,
+      'query': cleanQuery,
+      'include_adult': 'false',
+    });
+
+    final response = await _client.get(
+      uri,
+      headers: {
+        'User-Agent': 'LogspadApp/1.0 (Flutter)',
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 6));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final results = (data['results'] as List<dynamic>?) ?? [];
+      if (results.isEmpty) return [];
+
+      _sortResultsByRelevance(results, cleanQuery, titleKey: 'name');
+
+      return results.take(6).map((item) {
+        final first = item as Map<String, dynamic>;
+        final firstAirDate = first['first_air_date'] as String?;
+        int? year;
+        if (firstAirDate != null && firstAirDate.length >= 4) {
+          year = int.tryParse(firstAirDate.substring(0, 4));
+        }
+
+        final posterPath = first['poster_path'] as String?;
+        final posterUrl =
+            posterPath != null ? '${ApiConfig.tmdbImageBaseUrl}$posterPath' : null;
+
+        final genreIds =
+            (first['genre_ids'] as List<dynamic>?)?.map((e) => e as int).toList() ?? [];
+        final genres =
+            genreIds.map((id) => _genreMap[id]).whereType<String>().toList();
+
+        final langCode = first['original_language'] as String?;
+
+        return TmdbSearchResult(
+          title: (first['name'] as String?) ?? cleanQuery,
+          year: year,
+          posterUrl: posterUrl,
+          synopsis: first['overview'] as String?,
+          language: langCode?.toUpperCase(),
+          genres: genres,
+        );
+      }).toList();
+    }
+    return [];
+  }
+
+  /// Searches TVMaze for shows and movies (100% Free, NO API key required).
+  Future<List<TmdbSearchResult>> _searchTvMaze(String cleanQuery) async {
+    final uri = Uri.https('api.tvmaze.com', '/search/shows', {
+      'q': cleanQuery,
+    });
+
+    final response = await _client.get(
+      uri,
+      headers: {
+        'User-Agent': 'LogspadApp/1.0 (Flutter)',
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 6));
+
+    if (response.statusCode == 200) {
+      final list = jsonDecode(response.body) as List<dynamic>;
+      if (list.isEmpty) return [];
+
+      return list.take(6).map((item) {
+        final show = (item as Map<String, dynamic>)['show'] as Map<String, dynamic>;
+        final name = (show['name'] as String?) ?? cleanQuery;
+        final premiered = show['premiered'] as String?;
+        int? year;
+        if (premiered != null && premiered.length >= 4) {
+          year = int.tryParse(premiered.substring(0, 4));
+        }
+        final imageMap = show['image'] as Map<String, dynamic>?;
+        final posterUrl = (imageMap?['original'] ?? imageMap?['medium']) as String?;
+        final rawSummary = show['summary'] as String?;
+        final synopsis = rawSummary?.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+        final genres = ((show['genres'] as List<dynamic>?) ?? []).cast<String>();
+        final lang = show['language'] as String?;
+
+        return TmdbSearchResult(
+          title: name,
+          year: year,
+          posterUrl: posterUrl,
+          synopsis: synopsis,
+          language: lang?.toUpperCase(),
+          genres: genres,
+        );
+      }).toList();
+    }
     return [];
   }
 

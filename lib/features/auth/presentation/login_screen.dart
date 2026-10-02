@@ -325,7 +325,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   // ── Eyebrow Label ─────────────────────────────────────────
                   Center(
                     child: Text(
-                      'LOG IN TO MYLOGS',
+                      'LOG IN TO LOGSPAD',
                       style: AppTypography.labelEyebrow.copyWith(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w700,

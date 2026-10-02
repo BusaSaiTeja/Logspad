@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+ 
 /// All color tokens from DESIGN.md — single source of truth.
 /// Naming matches the design system's CSS custom-property names (camelCase).
 abstract final class AppColors {

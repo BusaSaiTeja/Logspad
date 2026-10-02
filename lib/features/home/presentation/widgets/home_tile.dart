@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
-
+ 
 /// Tactile list tile with hairline dividers for grouped surfaces.
 class HomeTile extends StatelessWidget {
   const HomeTile({

@@ -11,6 +11,7 @@ class WorkspaceItem with _$WorkspaceItem {
     @Default('person_outline_rounded') String iconName,
     @Default(0xFF4F46E5) int colorValue,
     @Default(false) bool isDefault,
+    // Default features are strictly locked to the initial 6. Do NOT add new features here.
     @Default(['notes', 'tasks', 'reminders', 'read', 'watch', 'learning_paths'])
     List<String> enabledFeatures,
     required DateTime createdAt,

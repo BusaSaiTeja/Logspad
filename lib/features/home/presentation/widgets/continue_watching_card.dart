@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/media_letter_placeholder.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
 
 class ContinueWatchingCard extends StatelessWidget {
@@ -27,14 +28,20 @@ class ContinueWatchingCard extends StatelessWidget {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-                  child: item.posterUrl != null
+                  child: (item.posterUrl != null && item.posterUrl!.isNotEmpty)
                       ? Image.network(
                           item.posterUrl!,
                           fit: BoxFit.cover,
                           width: double.infinity,
-                          errorBuilder: (_, _, _) => const Icon(Icons.movie_outlined, size: 36, color: AppColors.outline),
+                          errorBuilder: (_, _, _) => MediaLetterPlaceholder(
+                            title: item.title,
+                            fontSize: 36,
+                          ),
                         )
-                      : const Icon(Icons.movie_outlined, size: 36, color: AppColors.outline),
+                      : MediaLetterPlaceholder(
+                          title: item.title,
+                          fontSize: 36,
+                        ),
                 ),
               ),
             ),

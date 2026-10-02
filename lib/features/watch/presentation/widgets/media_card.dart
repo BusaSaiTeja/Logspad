@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/media_letter_placeholder.dart';
 import 'package:my_logs/core/widgets/status_chip.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
 
@@ -38,13 +39,13 @@ class MediaCard extends StatelessWidget {
                 child: SizedBox(
                   width: 96,
                   height: 144,
-                  child: item.posterUrl != null
+                  child: (item.posterUrl != null && item.posterUrl!.isNotEmpty)
                       ? Image.network(
                           item.posterUrl!,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const _PosterPlaceholder(),
+                          errorBuilder: (_, _, _) => _PosterPlaceholder(title: item.title),
                         )
-                      : const _PosterPlaceholder(),
+                      : _PosterPlaceholder(title: item.title),
                 ),
               ),
               const SizedBox(width: AppSpacing.stackGap),
@@ -121,13 +122,14 @@ class MediaCard extends StatelessWidget {
 }
 
 class _PosterPlaceholder extends StatelessWidget {
-  const _PosterPlaceholder();
+  const _PosterPlaceholder({required this.title});
+  final String title;
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: AppColors.surfaceContainerHigh,
-      child: Center(child: Icon(Icons.movie_outlined, color: AppColors.outline, size: 32)),
+    return MediaLetterPlaceholder(
+      title: title,
+      fontSize: 34,
     );
   }
 }

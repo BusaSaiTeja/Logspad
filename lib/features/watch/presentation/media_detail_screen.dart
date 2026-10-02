@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/media_letter_placeholder.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
 import 'package:my_logs/features/watch/presentation/widgets/media_detail_status_card.dart';
@@ -157,16 +158,20 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (item.posterUrl != null)
+                  if (item.posterUrl != null && item.posterUrl!.isNotEmpty)
                     Image.network(
                       item.posterUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const ColoredBox(
-                        color: AppColors.surfaceContainerHigh,
+                      errorBuilder: (_, _, _) => MediaLetterPlaceholder(
+                        title: item.title,
+                        fontSize: 72,
                       ),
                     )
                   else
-                    const ColoredBox(color: AppColors.surfaceContainerHigh),
+                    MediaLetterPlaceholder(
+                      title: item.title,
+                      fontSize: 72,
+                    ),
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(

@@ -13,9 +13,9 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  static const String _channelId = 'mylog_reminders';
-  static const String _channelName = 'MyLog Reminders';
-  static const String _channelDesc = 'Scheduled reminders from MyLog';
+  static const String _channelId = 'logspad_reminders';
+  static const String _channelName = 'Logspad Reminders';
+  static const String _channelDesc = 'Scheduled reminders from Logspad';
 
   Future<void> initialize() async {
     tz_data.initializeTimeZones();

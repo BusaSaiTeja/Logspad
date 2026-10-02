@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/media_letter_placeholder.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/watch/data/anilist_anime_service.dart';
 import 'package:my_logs/features/watch/data/tmdb_service.dart';
@@ -410,33 +411,30 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
 
                         return ListTile(
                           dense: true,
-                          leading: item.posterUrl != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: CachedNetworkImage(
-                                    imageUrl: item.posterUrl!,
-                                    width: 32,
-                                    height: 46,
-                                    fit: BoxFit.cover,
-                                    placeholder: (_, _) => Container(
-                                      width: 32,
-                                      height: 46,
-                                      color: AppColors.surfaceContainerLow,
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: SizedBox(
+                              width: 32,
+                              height: 46,
+                              child: (item.posterUrl != null && item.posterUrl!.isNotEmpty)
+                                  ? CachedNetworkImage(
+                                      imageUrl: item.posterUrl!,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, _) => MediaLetterPlaceholder(
+                                        title: item.title,
+                                        fontSize: 16,
+                                      ),
+                                      errorWidget: (_, _, _) => MediaLetterPlaceholder(
+                                        title: item.title,
+                                        fontSize: 16,
+                                      ),
+                                    )
+                                  : MediaLetterPlaceholder(
+                                      title: item.title,
+                                      fontSize: 16,
                                     ),
-                                    errorWidget: (_, _, _) => Container(
-                                      width: 32,
-                                      height: 46,
-                                      color: AppColors.surfaceContainerLow,
-                                      child: const Icon(Icons.movie_outlined, size: 16),
-                                    ),
-                                  ),
-                                )
-                              : Container(
-                                  width: 32,
-                                  height: 46,
-                                  color: AppColors.surfaceContainerLow,
-                                  child: const Icon(Icons.movie_outlined, size: 16),
-                                ),
+                            ),
+                          ),
                           title: Text(
                             item.title,
                             style: AppTypography.bodyLg.copyWith(fontSize: 14),
@@ -455,20 +453,50 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
                 ),
               ],
 
-              // ── No Results Message ───────────────────────────────────────
-              if (_showNoResultsMsg) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.info_outline_rounded, size: 14, color: AppColors.onSurfaceVariant),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        "Couldn't find that online — enter details manually below.",
-                        style: AppTypography.labelMdOutline().copyWith(fontSize: 12),
+              // ── No Results State with Letter Cover ──────────────────────
+              if (_showNoResultsMsg && _titleCtrl.text.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    border: Border.all(color: AppColors.outlineVariant),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: SizedBox(
+                          width: 34,
+                          height: 48,
+                          child: MediaLetterPlaceholder(
+                            title: _titleCtrl.text,
+                            fontSize: 18,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '"${_titleCtrl.text.trim()}" not found online',
+                              style: AppTypography.bodyMd.copyWith(fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Save manually — it will use this letter monogram poster.',
+                              style: AppTypography.labelMdOutline().copyWith(fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
 

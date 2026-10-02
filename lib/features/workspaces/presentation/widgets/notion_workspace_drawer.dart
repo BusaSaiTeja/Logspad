@@ -82,6 +82,20 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
                     },
                   ),
 
+                  // ── Feature Marketplace Navigation Item (below Home) ──────
+                  _buildGmailNavItem(
+                    context: context,
+                    title: 'Marketplace',
+                    icon: Icons.storefront_outlined,
+                    activeIcon: Icons.storefront_rounded,
+                    count: 0,
+                    isActive: currentLoc.startsWith('/marketplace'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      context.push('/marketplace');
+                    },
+                  ),
+
                   const SizedBox(height: 4),
                   const Divider(color: _border, height: 16, thickness: 1),
                   const SizedBox(height: 2),
@@ -192,15 +206,6 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
                         context.go('/learning-paths');
                       },
                     ),
-
-                  const SizedBox(height: 4),
-                  const Divider(color: _border, height: 16, thickness: 1),
-
-                  // ── Feature Marketplace Navigation Item (below active features) ──
-                  _buildMarketplaceNavItem(context),
-
-                  // ── Log Out Navigation Item ──────────────────────────────
-                  _buildLogoutNavItem(context),
 
                   const SizedBox(height: 80),
                 ],
@@ -597,109 +602,6 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
     );
   }
 
-  // ── 🧩 Feature Marketplace Navigation Item (Clean List Item) ──────────────
-  Widget _buildMarketplaceNavItem(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(top: 2, bottom: 4),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.of(context).pop();
-            context.push('/marketplace');
-          },
-          borderRadius: BorderRadius.circular(24),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.storefront_outlined,
-                  color: _textSecondary,
-                  size: 20,
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Text(
-                    'Feature Marketplace',
-                    style: TextStyle(
-                      color: _textPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _surface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _border, width: 1),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.tune_rounded,
-                        size: 13,
-                        color: _textSecondary,
-                      ),
-                      SizedBox(width: 4),
-                      Text(
-                        'Customize',
-                        style: TextStyle(
-                          color: _textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── 🚪 Log Out Navigation Item ─────────────────────────────────────────────
-  Widget _buildLogoutNavItem(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(top: 2, bottom: 4),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _confirmLogout(context),
-          borderRadius: BorderRadius.circular(24),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: const Row(
-              children: [
-                Icon(
-                  Icons.logout_rounded,
-                  color: Color(0xFFDC2626),
-                  size: 20,
-                ),
-                SizedBox(width: 14),
-                Expanded(
-                  child: Text(
-                    'Log Out',
-                    style: TextStyle(
-                      color: Color(0xFFDC2626),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   // ── 🚪 Centralized Logout Confirmation Dialog ───────────────────────────────
   void _confirmLogout(BuildContext context) {

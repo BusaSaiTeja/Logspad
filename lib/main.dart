@@ -20,16 +20,16 @@ void main() async {
   }
 
   await NotificationService.instance.initialize();
-  runApp(const ProviderScope(child: MyLogApp()));
+  runApp(const ProviderScope(child: LogspadApp()));
 }
 
-class MyLogApp extends StatelessWidget {
-  const MyLogApp({super.key});
+class LogspadApp extends StatelessWidget {
+  const LogspadApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'MyLog',
+      title: 'Logspad',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       routerConfig: appRouter,

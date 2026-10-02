@@ -1,7 +1,7 @@
 name: my_logs
-description: "MyLog — Personal Tracker Hub. Track media, books, tasks, notes and learning paths."
+description: "Logspad — Personal Tracker Hub. Track media, books, tasks, notes and learning paths."
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.12.2

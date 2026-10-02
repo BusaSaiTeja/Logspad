@@ -65,7 +65,7 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
   Future<void> _scheduleNotification(ReminderItem item) async {
     await NotificationService.instance.scheduleNotification(
       id: NotificationService.idFromString(item.id),
-      title: 'MyLog Reminder',
+      title: 'Logspad Reminder',
       body: item.title,
       scheduledTime: item.scheduledTime,
     );
