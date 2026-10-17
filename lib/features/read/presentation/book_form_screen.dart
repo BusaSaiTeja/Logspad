@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/read/application/book_providers.dart';
 import 'package:my_logs/features/read/data/google_books_service.dart';
 import 'package:my_logs/features/read/domain/models/book_item.dart';
@@ -33,6 +35,7 @@ class _BookFormScreenState extends ConsumerState<BookFormScreen> {
   BookStatus _status = BookStatus.toRead;
   bool _addToCollection = false;
   bool _isEdit = false;
+  bool _isSubmitting = false;
 
   Timer? _debounceTimer;
   List<GoogleBookSuggestion> _suggestions = [];
@@ -157,7 +160,9 @@ class _BookFormScreenState extends ConsumerState<BookFormScreen> {
   }
 
   Future<void> _save() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
     FocusScope.of(context).unfocus();
     final genres = _genresCtrl.text
         .split(',')
@@ -166,10 +171,26 @@ class _BookFormScreenState extends ConsumerState<BookFormScreen> {
         .toList();
     final now = DateTime.now();
 
-    if (_isEdit && widget.bookId != null) {
-      final existing = ref.read(bookByIdProvider(widget.bookId!));
-      if (existing != null) {
-        ref.read(bookListProvider.notifier).updateItem(existing.copyWith(
+    try {
+      if (_isEdit && widget.bookId != null) {
+        final existing = ref.read(bookByIdProvider(widget.bookId!));
+        if (existing != null) {
+          await ref.read(bookListProvider.notifier).updateItem(existing.copyWith(
+                title: _titleCtrl.text.trim(),
+                author: _authorCtrl.text.trim(),
+                coverUrl: _coverCtrl.text.trim().isEmpty ? null : _coverCtrl.text.trim(),
+                totalPages: int.tryParse(_totalPagesCtrl.text),
+                genres: genres,
+                status: _status,
+                isCollection: _addToCollection,
+                updatedAt: now,
+              ));
+        }
+      } else {
+        final activeWorkspaceId = ref.read(activeWorkspaceIdProvider).valueOrNull ?? '';
+        await ref.read(bookListProvider.notifier).add(BookItem(
+              id: '',
+              workspaceId: activeWorkspaceId,
               title: _titleCtrl.text.trim(),
               author: _authorCtrl.text.trim(),
               coverUrl: _coverCtrl.text.trim().isEmpty ? null : _coverCtrl.text.trim(),
@@ -177,30 +198,27 @@ class _BookFormScreenState extends ConsumerState<BookFormScreen> {
               genres: genres,
               status: _status,
               isCollection: _addToCollection,
+              createdAt: now,
               updatedAt: now,
             ));
       }
-    } else {
-      final activeWorkspaceId = ref.read(activeWorkspaceIdProvider).valueOrNull ?? '';
-      ref.read(bookListProvider.notifier).add(BookItem(
-            id: '',
-            workspaceId: activeWorkspaceId,
-            title: _titleCtrl.text.trim(),
-            author: _authorCtrl.text.trim(),
-            coverUrl: _coverCtrl.text.trim().isEmpty ? null : _coverCtrl.text.trim(),
-            totalPages: int.tryParse(_totalPagesCtrl.text),
-            genres: genres,
-            status: _status,
-            isCollection: _addToCollection,
-            createdAt: now,
-            updatedAt: now,
-          ));
-    }
 
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go('/read');
+      if (mounted) {
+        AppSnackBar.showSuccess(
+          context,
+          _isEdit ? 'Book updated successfully' : 'Book added to reading list',
+        );
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/read');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        AppSnackBar.showError(context, 'Failed to save book: $e');
+      }
     }
   }
 
@@ -233,8 +251,14 @@ class _BookFormScreenState extends ConsumerState<BookFormScreen> {
                 onPressed: _confirmDelete,
               ),
             TextButton(
-              onPressed: _save,
-              child: Text('Save', style: AppTypography.labelMdPrimary()),
+              onPressed: _isSubmitting ? null : _save,
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                    )
+                  : Text('Save', style: AppTypography.labelMdPrimary()),
             ),
           ],
         ),
@@ -361,6 +385,7 @@ class _BookFormScreenState extends ConsumerState<BookFormScreen> {
               _label('Reading Status'),
               const SizedBox(height: 6),
               DropdownButtonFormField<BookStatus>(
+                key: ValueKey(_status),
                 initialValue: _status,
                 decoration: const InputDecoration(),
                 onChanged: (s) => setState(() => _status = s!),
@@ -407,27 +432,27 @@ class _BookFormScreenState extends ConsumerState<BookFormScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final confirm = await showDialog<bool>(
+    final confirm = await showAppConfirmationDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Book'),
-        content: const Text('Are you sure you want to delete this book?'),
-        actions: [
-          TextButton(onPressed: () => ctx.pop(false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => ctx.pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      title: 'Delete Book',
+      message: 'Are you sure you want to delete this book?',
+      confirmLabel: 'Delete',
+      icon: Icons.delete_outline_rounded,
+      confirmColor: AppColors.error,
     );
     if (confirm == true && mounted) {
       final router = GoRouter.of(context);
       final canPop = router.canPop();
-      await ref.read(bookListProvider.notifier).delete(widget.bookId!);
-      if (mounted) {
-        canPop ? router.pop() : router.go('/read');
+      try {
+        await ref.read(bookListProvider.notifier).delete(widget.bookId!);
+        if (mounted) {
+          AppSnackBar.showSuccess(context, 'Book deleted');
+          canPop ? router.pop() : router.go('/read');
+        }
+      } catch (e) {
+        if (mounted) {
+          AppSnackBar.showError(context, 'Failed to delete book: $e');
+        }
       }
     }
   }

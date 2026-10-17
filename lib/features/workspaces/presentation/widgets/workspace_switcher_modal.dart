@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
 import 'package:my_logs/features/workspaces/domain/models/workspace_item.dart';
 import 'package:my_logs/features/workspaces/presentation/widgets/workspace_editor_dialog.dart';
@@ -194,32 +196,27 @@ class WorkspaceSwitcherModal extends ConsumerWidget {
     );
   }
 
-  static void _confirmDelete(BuildContext context, WidgetRef ref, WorkspaceItem ws) {
-    showDialog(
+  static Future<void> _confirmDelete(BuildContext context, WidgetRef ref, WorkspaceItem ws) async {
+    final confirmed = await showAppConfirmationDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.radius2Xl)),
-        title: Text('Delete "${ws.name}"?'),
-        content: const Text(
-          'This workspace will be removed. Your logs will remain accessible under other workspaces.',
-        ),
-        actions: [
-          TextButton(onPressed: () => ctx.pop(), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFDC2626),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              ref.read(workspaceListProvider.notifier).deleteWorkspace(ws.id);
-              ctx.pop();
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      title: 'Delete "${ws.name}"?',
+      message: 'This workspace will be removed. Your logs will remain accessible under other workspaces.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+      icon: Icons.delete_outline_rounded,
     );
+    if (confirmed == true) {
+      try {
+        await ref.read(workspaceListProvider.notifier).deleteWorkspace(ws.id);
+        if (context.mounted) {
+          AppSnackBar.showSuccess(context, 'Workspace "${ws.name}" deleted');
+        }
+      } catch (e) {
+        if (context.mounted) {
+          AppSnackBar.showError(context, 'Failed to delete workspace: $e');
+        }
+      }
+    }
   }
-
 }
 

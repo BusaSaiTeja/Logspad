@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
 import 'package:my_logs/features/workspaces/domain/models/feature_definition.dart';
 import 'package:my_logs/features/workspaces/presentation/feature_preview_screen.dart';
@@ -28,7 +29,7 @@ class _FeatureMarketplaceScreenState extends ConsumerState<FeatureMarketplaceScr
   Widget build(BuildContext context) {
     final activeWs = ref.watch(activeWorkspaceProvider);
     final enabledKeys = activeWs?.enabledFeatures ??
-        ['notes', 'tasks', 'reminders', 'read', 'watch', 'learning_paths'];
+        const ['notes', 'tasks', 'reminders'];
 
     // Only show features that are NOT yet enabled in the active workspace
     final uninstalledFeatures = availableAppFeatures
@@ -269,13 +270,9 @@ class _FeatureMarketplaceScreenState extends ConsumerState<FeatureMarketplaceScr
                                 .read(workspaceListProvider.notifier)
                                 .toggleFeature(activeWs.id, feature.key);
 
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Added ${feature.title} to ${activeWs.name}!',
-                                ),
-                                duration: const Duration(seconds: 2),
-                              ),
+                            AppSnackBar.showSuccess(
+                              context,
+                              'Added ${feature.title} to ${activeWs.name}!',
                             );
                           }
                         },

@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
 import 'package:my_logs/core/widgets/pill_tab_bar.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
 import 'package:my_logs/features/watch/presentation/widgets/media_card.dart';
@@ -62,6 +64,8 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final mediaListAsync = ref.watch(mediaListProvider);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -79,7 +83,7 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
         heroTag: 'media_list_fab',
         backgroundColor: AppColors.primary,
         foregroundColor: AppColors.onPrimary,
-        onPressed: () => context.push(_addRoute),
+        onPressed: () => SafeTap.run(() => context.push(_addRoute)),
         child: const Icon(Icons.add_rounded),
       ),
       body: Column(
@@ -113,45 +117,65 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
           ),
           // ── Swipeable PageView List ───────────────────────────────────────
           Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: _statuses.length,
-              onPageChanged: (i) => setState(() => _selectedTab = i),
-              itemBuilder: (context, tabIdx) {
-                final status = _statuses[tabIdx];
-                final items = ref.watch(mediaByCategoryAndStatus((widget.category, status)));
-                final filtered = _searchQuery.isEmpty
-                    ? items
-                    : items
-                        .where((m) =>
-                            m.title.toLowerCase().contains(_searchQuery.toLowerCase()))
-                        .toList();
+            child: mediaListAsync.when(
+              loading: () => const ShimmerSkeletonList(
+                itemCount: 5,
+                cardHeight: 88,
+              ),
+              error: (err, _) => ErrorStateView(
+                message: err.toString(),
+                onRetry: () => ref.refresh(mediaListProvider),
+              ),
+              data: (_) => RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () async => ref.refresh(mediaListProvider),
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: _statuses.length,
+                  onPageChanged: (i) => setState(() => _selectedTab = i),
+                  itemBuilder: (context, tabIdx) {
+                    final status = _statuses[tabIdx];
+                    final items = ref.watch(mediaByCategoryAndStatus((widget.category, status)));
+                    final filtered = _searchQuery.isEmpty
+                        ? items
+                        : items
+                            .where((m) =>
+                                m.title.toLowerCase().contains(_searchQuery.toLowerCase()))
+                            .toList();
 
-                if (filtered.isEmpty) {
-                  return EmptyState(
-                    icon: Icons.movie_outlined,
-                    title: 'No ${_tabs[tabIdx].toLowerCase()} items',
-                    subtitle: 'Add your first ${widget.category.label.toLowerCase()}',
-                    actionLabel: 'Add',
-                    onAction: () => context.push(_addRoute),
-                  );
-                }
+                    if (filtered.isEmpty) {
+                      if (_searchQuery.isNotEmpty) {
+                        return SearchEmptyView(
+                          query: _searchQuery,
+                          onClear: () => setState(() => _searchQuery = ''),
+                        );
+                      }
+                      return EmptyState(
+                        icon: Icons.movie_outlined,
+                        title: 'No ${_tabs[tabIdx].toLowerCase()} items',
+                        subtitle: 'Add your first ${widget.category.label.toLowerCase()}',
+                        actionLabel: 'Add',
+                        onAction: () => SafeTap.run(() => context.push(_addRoute)),
+                      );
+                    }
 
-                return ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10.0),
-                  itemBuilder: (context, i) {
-                    final item = filtered[i];
-                    return MediaCard(
-                      item: item,
-                      onTap: () => context.push(_detailRoute(item.id)),
-                      onDelete: () =>
-                          ref.read(mediaListProvider.notifier).delete(item.id),
+                    return ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10.0),
+                      itemBuilder: (context, i) {
+                        final item = filtered[i];
+                        return MediaCard(
+                          item: item,
+                          onTap: () => SafeTap.run(() => context.push(_detailRoute(item.id))),
+                          onDelete: () =>
+                              ref.read(mediaListProvider.notifier).delete(item.id),
+                        );
+                      },
                     );
                   },
-                );
-              },
+                ),
+              ),
             ),
           ),
         ],

@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -51,11 +52,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Account created! Please verify your email ✉️'),
-          backgroundColor: AppColors.primary,
-        ),
+      AppSnackBar.showSuccess(
+        context,
+        'Account created! Please verify your email ✉️',
       );
       // GoRouter redirect automatically routes unverified user to /verify-email
     } on FirebaseAuthException catch (e) {
@@ -88,11 +87,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (credential == null) return;
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Signed in with Google! 👋'),
-          backgroundColor: AppColors.primary,
-        ),
+      AppSnackBar.showSuccess(
+        context,
+        'Signed in with Google! 👋',
       );
       if (context.canPop()) {
         context.pop();
@@ -170,11 +167,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   // ── Brand Monogram Tile ──────────────────────────────────
                   Center(
                     child: Container(
-                      width: 52,
-                      height: 52,
+                      width: 56,
+                      height: 56,
                       decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(15),
                         boxShadow: [
                           BoxShadow(
                             color: AppColors.primary.withValues(alpha: 0.28),
@@ -183,11 +179,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           ),
                         ],
                       ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.sticky_note_2_rounded,
-                          size: 26,
-                          color: Colors.white,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(15),
+                        child: Image.asset(
+                          'assets/Logo.png',
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
                         ),
                       ),
                     ),

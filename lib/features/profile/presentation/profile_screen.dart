@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,8 +7,10 @@ import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/provider_reset_utils.dart';
 import 'package:my_logs/core/utils/user_display_utils.dart';
 import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -184,7 +187,31 @@ class ProfileScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          // ── Settings Action ───────────────────────────────────────────────
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/settings'),
+              icon: const Icon(Icons.settings_outlined, size: 18, color: AppColors.primary),
+              label: const Text(
+                'Settings & Preferences',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFE2E8F0)),
+                backgroundColor: AppColors.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // ── Log Out Action ────────────────────────────────────────────────
           SizedBox(
@@ -204,6 +231,30 @@ class ProfileScreen extends ConsumerWidget {
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFFFECACA)),
                 backgroundColor: const Color(0xFFFEF2F2),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ── Delete Account Action (Store Requirement) ──────────────────────
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: TextButton.icon(
+              onPressed: () => _confirmDeleteAccount(context, ref),
+              icon: const Icon(Icons.delete_forever_rounded, size: 18, color: Color(0xFFDC2626)),
+              label: const Text(
+                'Delete Account',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFFDC2626),
+                ),
+              ),
+              style: TextButton.styleFrom(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
                 ),
@@ -249,5 +300,99 @@ class ProfileScreen extends ConsumerWidget {
       context: context,
       ref: ref,
     );
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showAppConfirmationDialog(
+      context: context,
+      title: 'Delete Account',
+      icon: Icons.delete_forever_rounded,
+      message:
+          'Are you sure you want to permanently delete your account and all associated logs, tasks, reminders, and workspaces? This action cannot be undone.',
+      confirmLabel: 'Delete Permanently',
+      confirmColor: const Color(0xFFDC2626),
+      isDestructive: true,
+    );
+
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+
+    final authService = ref.read(authServiceProvider);
+    String? password;
+
+    // Prompt for password re-auth upfront if registered with email/password
+    if (authService.isPasswordUser) {
+      password = await showPasswordConfirmationDialog(
+        context: context,
+        title: 'Confirm Password',
+        message:
+            'For security, please enter your current password to authorize permanent account deletion.',
+        confirmLabel: 'Confirm & Delete',
+        icon: Icons.lock_outline_rounded,
+      );
+      if (password == null || password.isEmpty) return;
+      if (!context.mounted) return;
+    }
+
+    // Show non-dismissible loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      // Re-authenticate upfront before modifying any user records in Firestore
+      if (authService.isPasswordUser && password != null) {
+        await authService.reauthenticateWithPassword(password);
+      } else if (authService.isGoogleUser) {
+        await authService.reauthenticateWithGoogle();
+      }
+
+      resetAllDomainProviders(ref);
+      await authService.deleteAccount();
+
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // dismiss loading dialog
+      context.go('/');
+      AppSnackBar.showSuccess(
+        context,
+        'Your account and all associated data have been permanently deleted.',
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // dismiss loading dialog
+      if (e.code == 'wrong-password') {
+        AppSnackBar.showError(
+          context,
+          'Incorrect password. Account deletion canceled.',
+        );
+      } else if (e.code == 'canceled') {
+        AppSnackBar.showInfo(
+          context,
+          'Google re-authentication was canceled. Account deletion aborted.',
+        );
+      } else if (e.code == 'requires-recent-login') {
+        AppSnackBar.showError(
+          context,
+          'For security, deleting your account requires a recent sign-in. Please log out, sign in again, and retry.',
+          duration: const Duration(seconds: 5),
+        );
+      } else {
+        AppSnackBar.showError(
+          context,
+          'Failed to delete account: ${e.message ?? e.code}',
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // dismiss loading dialog
+      AppSnackBar.showError(
+        context,
+        'An unexpected error occurred: $e',
+      );
+    }
   }
 }

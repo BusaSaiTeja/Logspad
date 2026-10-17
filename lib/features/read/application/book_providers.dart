@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/features/read/data/firestore_book_repository.dart';
 import 'package:my_logs/features/read/data/google_books_service.dart';
@@ -23,25 +24,57 @@ class BookListNotifier extends AsyncNotifier<List<BookItem>> {
   @override
   Future<List<BookItem>> build() async => _repo.getAll();
 
+  /// Optimistically adds book to local state immediately
   Future<void> add(BookItem item) async {
-    final created = await _repo.add(item);
-    state = AsyncData([created, ...?state.valueOrNull]);
+    final current = state.valueOrNull ?? [];
+    final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
+    final optimisticItem = item.copyWith(id: id);
+    state = AsyncData([optimisticItem, ...current.where((b) => b.id != id)]);
+
+    try {
+      final saved = await _repo.add(optimisticItem);
+      final updatedList = (state.valueOrNull ?? [])
+          .map((b) => b.id == id ? saved : b)
+          .toList();
+      state = AsyncData(updatedList);
+    } catch (e) {
+      state = AsyncData(current);
+      rethrow;
+    }
   }
 
+  /// Optimistically updates book in local state immediately
   Future<void> updateItem(BookItem item) async {
-    final updated = await _repo.update(item);
-    state = AsyncData(
-      (state.valueOrNull ?? []).map((b) => b.id == updated.id ? updated : b).toList(),
-    );
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.map((b) => b.id == item.id ? item : b).toList());
+
+    try {
+      await _repo.update(item);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
+  /// Optimistically deletes book from local state immediately
   Future<void> delete(String id) async {
-    await _repo.delete(id);
-    state = AsyncData((state.valueOrNull ?? []).where((b) => b.id != id).toList());
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.where((b) => b.id != id).toList());
+
+    try {
+      await _repo.delete(id);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
+  /// Optimistically updates status immediately
   Future<void> updateStatus(String id, BookStatus status) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((b) => b.id == id);
+    final existing = (state.valueOrNull ?? []).where((b) => b.id == id).firstOrNull;
+    if (existing == null) return;
     final wasInCollection = existing.isCollection || existing.status == BookStatus.collection;
     await updateItem(existing.copyWith(
       status: status,
@@ -49,8 +82,10 @@ class BookListNotifier extends AsyncNotifier<List<BookItem>> {
     ));
   }
 
+  /// Optimistically toggles collection flag immediately
   Future<void> toggleCollection(String id, bool isCollection) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((b) => b.id == id);
+    final existing = (state.valueOrNull ?? []).where((b) => b.id == id).firstOrNull;
+    if (existing == null) return;
     final effectiveStatus = (existing.status == BookStatus.collection)
         ? (existing.currentPage > 0 ? BookStatus.reading : BookStatus.toRead)
         : existing.status;
@@ -60,18 +95,24 @@ class BookListNotifier extends AsyncNotifier<List<BookItem>> {
     ));
   }
 
+  /// Optimistically updates reading progress immediately
   Future<void> updateProgress(String id, int currentPage) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((b) => b.id == id);
+    final existing = (state.valueOrNull ?? []).where((b) => b.id == id).firstOrNull;
+    if (existing == null) return;
     await updateItem(existing.copyWith(currentPage: currentPage));
   }
 
+  /// Optimistically updates rating immediately
   Future<void> updateRating(String id, double rating) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((b) => b.id == id);
+    final existing = (state.valueOrNull ?? []).where((b) => b.id == id).firstOrNull;
+    if (existing == null) return;
     await updateItem(existing.copyWith(rating: rating));
   }
 
+  /// Optimistically updates notes immediately
   Future<void> updateNotes(String id, String notes) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((b) => b.id == id);
+    final existing = (state.valueOrNull ?? []).where((b) => b.id == id).firstOrNull;
+    if (existing == null) return;
     await updateItem(existing.copyWith(notes: notes));
   }
 }

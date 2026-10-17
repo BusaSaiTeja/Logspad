@@ -2,9 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/notes/application/note_providers.dart';
 import 'package:my_logs/features/notes/domain/models/note_item.dart';
 import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
@@ -24,6 +27,8 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   final List<String> _selectedTags = [];
   String? _currentNoteId;
   Timer? _debounceTimer;
+  bool _isSaving = false;
+  bool _savePending = false;
 
   @override
   void initState() {
@@ -48,7 +53,10 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
 
   @override
   void dispose() {
-    _debounceTimer?.cancel();
+    if (_debounceTimer?.isActive ?? false) {
+      _debounceTimer?.cancel();
+      _autoSave();
+    }
     _titleCtrl.dispose();
     _contentCtrl.dispose();
     super.dispose();
@@ -68,6 +76,13 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     // Skip auto-saving if completely empty
     if (title.isEmpty && content.trim().isEmpty && _selectedTags.isEmpty) return;
 
+    if (_isSaving) {
+      _savePending = true;
+      return;
+    }
+    _isSaving = true;
+    _savePending = false;
+
     final now = DateTime.now();
     final effectiveTitle = title.isEmpty ? 'Untitled Note' : title;
 
@@ -83,9 +98,12 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
               ));
         }
       } else {
+        // Synchronously allocate unique ID so concurrent saves never re-enter create branch
+        final generatedId = const Uuid().v4();
+        _currentNoteId = generatedId;
         final activeWorkspaceId = ref.read(activeWorkspaceIdProvider).valueOrNull ?? '';
         final newNote = NoteItem(
-          id: '',
+          id: generatedId,
           workspaceId: activeWorkspaceId,
           title: effectiveTitle,
           content: content,
@@ -94,12 +112,15 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           updatedAt: now,
         );
         await ref.read(noteListProvider.notifier).add(newNote);
-        final list = ref.read(noteListProvider).valueOrNull ?? [];
-        if (list.isNotEmpty) {
-          _currentNoteId = list.first.id;
-        }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('Note autoSave error: $e\n$st');
+    } finally {
+      _isSaving = false;
+      if (_savePending && mounted) {
+        _autoSave();
+      }
+    }
   }
 
   void _showAddTagDialog() {
@@ -193,9 +214,10 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
 
     return PopScope(
       canPop: true,
-      onPopInvokedWithResult: (didPop, _) async {
+      onPopInvokedWithResult: (didPop, _) {
         if (didPop) {
-          await _autoSave();
+          _debounceTimer?.cancel();
+          _autoSave();
         }
       },
       child: Scaffold(
@@ -205,10 +227,13 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
             color: AppColors.onSurfaceVariant,
-            onPressed: () async {
-              await _autoSave();
-              if (context.mounted) {
-                context.canPop() ? context.pop() : context.go('/notes');
+            onPressed: () {
+              _debounceTimer?.cancel();
+              _autoSave();
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/notes');
               }
             },
           ),
@@ -221,29 +246,31 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
                 icon: const Icon(Icons.delete_outline_rounded),
                 color: AppColors.error,
                 onPressed: () async {
-                  final confirm = await showDialog<bool>(
+                  final confirm = await showAppConfirmationDialog(
                     context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('Delete Note'),
-                      content: const Text('Are you sure you want to delete this note?'),
-                      actions: [
-                        TextButton(onPressed: () => ctx.pop(false), child: const Text('Cancel')),
-                        TextButton(
-                          onPressed: () => ctx.pop(true),
-                          style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                          child: const Text('Delete'),
-                        ),
-                      ],
-                    ),
+                    title: 'Delete Note',
+                    message: 'Are you sure you want to delete this note?',
+                    confirmLabel: 'Delete',
+                    icon: Icons.delete_outline_rounded,
+                    confirmColor: AppColors.error,
                   );
                   if (confirm == true && context.mounted) {
                     final idToDelete = _currentNoteId!;
                     _currentNoteId = null;
-                    ref.read(noteListProvider.notifier).delete(idToDelete);
-                    if (context.canPop()) {
-                      context.pop();
-                    } else {
-                      context.go('/notes');
+                    try {
+                      await ref.read(noteListProvider.notifier).delete(idToDelete);
+                      if (context.mounted) {
+                        AppSnackBar.showSuccess(context, 'Note deleted');
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go('/notes');
+                        }
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        AppSnackBar.showError(context, 'Failed to delete note: $e');
+                      }
                     }
                   }
                 },

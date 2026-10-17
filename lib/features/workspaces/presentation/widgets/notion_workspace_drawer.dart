@@ -13,7 +13,6 @@ import 'package:my_logs/features/reminders/application/reminder_providers.dart';
 import 'package:my_logs/features/tasks/application/task_providers.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
-import 'package:my_logs/features/workspaces/application/workspace_stats_provider.dart';
 import 'package:my_logs/features/workspaces/domain/models/workspace_item.dart';
 import 'package:my_logs/features/workspaces/presentation/widgets/workspace_switcher_modal.dart';
 
@@ -47,7 +46,7 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
     final paths = ref.watch(workspaceFilteredLearningPathsProvider).valueOrNull ?? [];
 
     final enabledKeys = activeWs?.enabledFeatures ??
-        ['notes', 'tasks', 'reminders', 'read', 'watch', 'learning_paths'];
+        const ['notes', 'tasks', 'reminders'];
 
     final currentLoc = GoRouterState.of(context).matchedLocation;
 
@@ -296,9 +295,6 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
     final activeId = ref.read(activeWorkspaceIdProvider).valueOrNull;
     final user = ref.read(authStateProvider).valueOrNull;
 
-    final stats = ref.read(workspaceStatsProvider);
-    final totalCount = stats.total;
-
     final wsName = activeWs?.name ?? 'Personal';
     final wsColor = Color(activeWs?.colorValue ?? 0xFF4F46E5);
     final wsInitial = wsName.isNotEmpty ? wsName[0].toUpperCase() : 'P';
@@ -362,9 +358,9 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
                               overflow: TextOverflow.ellipsis,
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              'Free Plan · $totalCount logged',
-                              style: const TextStyle(
+                            const Text(
+                              'Active Workspace',
+                              style: TextStyle(
                                 color: _textSecondary,
                                 fontSize: 12,
                               ),
@@ -379,31 +375,13 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
 
                   // ── Action Links ──────────────────────────────────────────
                   _buildDropdownAction(
-                    icon: Icons.arrow_circle_up_rounded,
-                    iconColor: const Color(0xFF3B82F6),
-                    title: 'Upgrade / Workspace Stats',
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      _showStatsDialog(stats);
-                    },
-                  ),
-                  _buildDropdownAction(
-                    icon: Icons.storefront_outlined,
-                    iconColor: AppColors.primary,
-                    title: 'Feature Marketplace',
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      Navigator.of(context).pop();
-                      context.push('/marketplace');
-                    },
-                  ),
-                  _buildDropdownAction(
                     icon: Icons.settings_outlined,
                     iconColor: _textSecondary,
                     title: 'Settings',
                     onTap: () {
                       Navigator.of(ctx).pop();
-                      WorkspaceSwitcherModal.show(context);
+                      Navigator.of(context).pop();
+                      context.push('/settings');
                     },
                   ),
                   _buildDropdownAction(
@@ -688,7 +666,7 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
     );
   }
 
-  // ── Bottom Fixed Bar (Search + Quick New) ──────────────────────────────────
+  // ── Bottom Fixed Bar (Search / AI Assistant) ──────────────────────────────
   Widget _buildBottomBar(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
@@ -696,124 +674,31 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
         color: _bg,
         border: Border(top: BorderSide(color: _border, width: 1)),
       ),
-      child: Row(
-        children: [
-          // Search Pill
-          Expanded(
-            child: InkWell(
-              onTap: () {
-                Navigator.of(context).pop();
-                context.go('/tasks');
-              },
-              borderRadius: BorderRadius.circular(24),
-              child: Container(
-                height: 42,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: _surface,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: _border, width: 1),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.search_rounded, size: 18, color: _textSecondary),
-                    SizedBox(width: 8),
-                    Text(
-                      'Search logs / Ask AI',
-                      style: TextStyle(color: _textSecondary, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).pop();
+          context.push('/ai-assistant');
+        },
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: _surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _border, width: 1),
           ),
-          const SizedBox(width: 10),
-
-          // Quick New Action Button
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () {
-                Navigator.of(context).pop();
-                _showQuickAddMenu(context);
-              },
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.edit_note_rounded, color: Colors.white, size: 22),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showQuickAddMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _bg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: const Row(
             children: [
-              ListTile(
-                leading: const Icon(Icons.description_outlined, color: AppColors.primary),
-                title: const Text('New Note', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w500)),
-                onTap: () {
-                  ctx.pop();
-                  context.push('/notes/add');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.check_box_outlined, color: AppColors.primary),
-                title: const Text('New Task', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w500)),
-                onTap: () {
-                  ctx.pop();
-                  context.push('/tasks/add');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.alarm_rounded, color: AppColors.primary),
-                title: const Text('New Reminder', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w500)),
-                onTap: () {
-                  ctx.pop();
-                  context.push('/reminders/add');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.book_outlined, color: AppColors.primary),
-                title: const Text('New Book Log', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w500)),
-                onTap: () {
-                  ctx.pop();
-                  context.push('/read/add');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.movie_outlined, color: AppColors.primary),
-                title: const Text('New Watch Log', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w500)),
-                onTap: () {
-                  ctx.pop();
-                  context.push('/watch/movies/add');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.alt_route_rounded, color: AppColors.primary),
-                title: const Text('New Learning Path', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w500)),
-                onTap: () {
-                  ctx.pop();
-                  context.push('/learning-paths/add');
-                },
+              Icon(Icons.auto_awesome, size: 16, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                'Ask AI Assistant...',
+                style: TextStyle(
+                  color: _textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -821,45 +706,5 @@ class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
       ),
     );
   }
-
-  void _showStatsDialog(WorkspaceStats stats) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _bg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Workspace Stats', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _statItem('Notes', stats.notes),
-            _statItem('Tasks', stats.tasks),
-            _statItem('Reminders', stats.reminders),
-            _statItem('Books', stats.books),
-            _statItem('Movies & Anime', stats.media),
-            _statItem('Learning Paths', stats.paths),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => ctx.pop(),
-            child: const Text('Close', style: TextStyle(color: AppColors.primary)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statItem(String label, int count) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: _textSecondary)),
-          Text('$count', style: const TextStyle(color: _textPrimary, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
 }
+

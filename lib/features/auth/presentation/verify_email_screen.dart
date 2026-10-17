@@ -7,6 +7,7 @@ import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
 import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class VerifyEmailScreen extends ConsumerStatefulWidget {
   const VerifyEmailScreen({super.key});
@@ -63,21 +64,15 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
       if (!mounted) return;
       if (isVerified) {
         _periodicTimer?.cancel();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Email verified successfully! Welcome aboard 🎉'),
-            backgroundColor: AppColors.primary,
-          ),
+        AppSnackBar.showSuccess(
+          context,
+          'Email verified successfully! Welcome aboard 🎉',
         );
         context.go('/');
       } else if (!silent) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Email not verified yet. Please check your inbox and tap the link.',
-            ),
-            backgroundColor: Color(0xFFF59E0B),
-          ),
+        AppSnackBar.showInfo(
+          context,
+          'Email not verified yet. Please check your inbox and tap the link.',
         );
       }
     } finally {
@@ -97,21 +92,15 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
       if (!mounted) return;
 
       _startCooldown(60);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Verification email sent! Please check your inbox or spam.',
-          ),
-          backgroundColor: AppColors.primary,
-        ),
+      AppSnackBar.showSuccess(
+        context,
+        'Verification email sent! Please check your inbox or spam.',
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not resend email: $e'),
-          backgroundColor: const Color(0xFFDC2626),
-        ),
+      AppSnackBar.showError(
+        context,
+        'Could not resend email: $e',
       );
     } finally {
       if (mounted) setState(() => _isResending = false);

@@ -9,6 +9,8 @@ import 'package:my_logs/features/reminders/application/reminder_providers.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
 import 'package:my_logs/features/read/application/book_providers.dart';
+import 'package:my_logs/features/notes/application/note_providers.dart';
+import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
 import 'package:my_logs/features/home/presentation/widgets/home_section_header.dart';
 import 'package:my_logs/features/home/presentation/widgets/home_stat_card.dart';
 import 'package:my_logs/features/home/presentation/widgets/home_tile.dart';
@@ -23,8 +25,11 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final activeWs = ref.watch(activeWorkspaceProvider);
+    final enabledKeys = activeWs?.enabledFeatures ?? const ['notes', 'tasks', 'reminders'];
     final todayTasks = ref.watch(todayTasksProvider);
     final todayReminders = ref.watch(todayRemindersProvider);
+    final notes = ref.watch(workspaceFilteredNotesProvider).valueOrNull ?? [];
     final continueWatching = ref.watch(continueWatchingProvider);
     final currentlyReading = ref.watch(currentlyReadingProvider);
 
@@ -44,8 +49,9 @@ class HomeScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
+            tooltip: 'Reminders',
             color: AppColors.onSurfaceVariant,
-            onPressed: () {},
+            onPressed: () => context.go('/reminders'),
           ),
           IconButton(
             icon: const Icon(Icons.account_circle_outlined),
@@ -54,38 +60,50 @@ class HomeScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-        children: [
+      body: RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: () async {
+          ref.invalidate(taskListProvider);
+          ref.invalidate(reminderListProvider);
+          ref.invalidate(mediaListProvider);
+          ref.invalidate(bookListProvider);
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          children: [
           // ── Asymmetric Bento Hero Overview (Breaks Dead Symmetry) ──────────
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Hero Focal Card: Today's Tasks & Momentum
-              Expanded(
-                flex: 11,
-                child: SizedBox(
-                  height: 150,
-                  child: HomeStatCard(
-                    value: '${todayTasks.length}',
-                    label: todayTasks.isEmpty
-                        ? 'All tasks completed'
-                        : 'Active tasks today',
-                    icon: Icons.check_circle_outline_rounded,
-                    color: AppColors.primaryContainer,
-                    eyebrow: "Today's Focus",
-                    isHero: true,
-                    onTap: () => context.go('/tasks'),
+          Builder(
+            builder: (context) {
+              final bentoHeight = MediaQuery.textScalerOf(context).scale(150.0).clamp(150.0, 195.0);
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Hero Focal Card: Today's Tasks & Momentum
+                  Expanded(
+                    flex: 11,
+                    child: SizedBox(
+                      height: bentoHeight,
+                      child: HomeStatCard(
+                        value: '${todayTasks.length}',
+                        label: todayTasks.isEmpty
+                            ? 'All tasks completed'
+                            : 'Active tasks today',
+                        icon: Icons.check_circle_outline_rounded,
+                        color: AppColors.primaryContainer,
+                        eyebrow: "Today's Focus",
+                        isHero: true,
+                        onTap: () => context.go('/tasks'),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 10),
+                  const SizedBox(width: 10),
 
-              // Right Stacked Micro Cards
-              Expanded(
-                flex: 9,
-                child: SizedBox(
-                  height: 150,
+                  // Right Stacked Micro Cards
+                  Expanded(
+                    flex: 9,
+                    child: SizedBox(
+                      height: bentoHeight,
                   child: Column(
                     children: [
                       Expanded(
@@ -99,20 +117,30 @@ class HomeScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 8),
                       Expanded(
-                        child: HomeStatCard(
-                          value: '${continueWatching.length}',
-                          label: 'Watching',
-                          icon: Icons.movie_outlined,
-                          color: AppColors.secondaryContainer,
-                          onTap: () => context.go('/watch'),
-                        ),
+                        child: enabledKeys.contains('watch')
+                            ? HomeStatCard(
+                                value: '${continueWatching.length}',
+                                label: 'Watching',
+                                icon: Icons.movie_outlined,
+                                color: AppColors.secondaryContainer,
+                                onTap: () => context.go('/watch'),
+                              )
+                            : HomeStatCard(
+                                value: '${notes.length}',
+                                label: 'Notes',
+                                icon: Icons.description_outlined,
+                                color: AppColors.secondaryContainer,
+                                onTap: () => context.go('/notes'),
+                              ),
                       ),
                     ],
                   ),
                 ),
               ),
-            ],
-          ),
+              ],
+            );
+          },
+        ),
           sectionGap,
 
           // ── Today's Tasks (Grouped Surface Card) ───────────────────────────
@@ -200,7 +228,7 @@ class HomeScreen extends ConsumerWidget {
           ],
 
           // ── Continue Watching ────────────────────────────────────────────────
-          if (continueWatching.isNotEmpty) ...[
+          if (enabledKeys.contains('watch') && continueWatching.isNotEmpty) ...[
             HomeSectionHeader(
               title: 'Continue Watching',
               actionLabel: 'Watch Hub',
@@ -226,7 +254,7 @@ class HomeScreen extends ConsumerWidget {
           ],
 
           // ── Currently Reading ────────────────────────────────────────────────
-          if (currentlyReading.isNotEmpty) ...[
+          if (enabledKeys.contains('read') && currentlyReading.isNotEmpty) ...[
             HomeSectionHeader(
               title: 'Currently Reading',
               actionLabel: 'Read Tracker',
@@ -242,8 +270,9 @@ class HomeScreen extends ConsumerWidget {
           const SizedBox(height: 24),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   String _watchDetailRoute(MediaItem item) {
     final base = switch (item.category) {

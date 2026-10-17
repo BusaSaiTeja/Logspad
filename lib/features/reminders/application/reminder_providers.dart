@@ -1,4 +1,6 @@
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/core/utils/date_utils.dart';
 import 'package:my_logs/core/utils/notification_service.dart';
@@ -19,55 +21,119 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
   @override
   Future<List<ReminderItem>> build() async => _repo.getAll();
 
+  /// Optimistically adds reminder immediately
   Future<void> add(ReminderItem item) async {
-    final created = await _repo.add(item);
-    if (created.isEnabled) {
-      await _scheduleNotification(created);
+    final current = state.valueOrNull ?? [];
+    final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
+    final optimisticItem = item.copyWith(id: id);
+    state = AsyncData([optimisticItem, ...current.where((r) => r.id != id)]);
+
+    try {
+      final created = await _repo.add(optimisticItem);
+      if (created.isEnabled) {
+        await _scheduleNotification(created);
+      }
+      final updatedList = (state.valueOrNull ?? [])
+          .map((r) => r.id == id ? created : r)
+          .toList();
+      state = AsyncData(updatedList);
+    } catch (e) {
+      state = AsyncData(current);
+      rethrow;
     }
-    state = AsyncData([...?state.valueOrNull, created]);
   }
 
+  /// Optimistically updates reminder immediately
   Future<void> updateItem(ReminderItem item) async {
-    final updated = await _repo.update(item);
-    // Cancel old and reschedule if enabled
-    await NotificationService.instance.cancelNotification(
-      NotificationService.idFromString(updated.id),
-    );
-    if (updated.isEnabled) await _scheduleNotification(updated);
-    state = AsyncData(
-      (state.valueOrNull ?? []).map((r) => r.id == updated.id ? updated : r).toList(),
-    );
-  }
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.map((r) => r.id == item.id ? item : r).toList());
 
-  Future<void> delete(String id) async {
-    await NotificationService.instance.cancelNotification(
-      NotificationService.idFromString(id),
-    );
-    await _repo.delete(id);
-    state = AsyncData((state.valueOrNull ?? []).where((r) => r.id != id).toList());
-  }
-
-  /// Toggles enabled state and schedules / cancels the notification accordingly.
-  Future<void> toggle(String id) async {
-    final toggled = await _repo.toggleEnabled(id);
-    if (toggled.isEnabled) {
-      await _scheduleNotification(toggled);
-    } else {
+    try {
+      final updated = await _repo.update(item);
       await NotificationService.instance.cancelNotification(
-        NotificationService.idFromString(toggled.id),
+        NotificationService.idFromString(updated.id),
       );
+      if (updated.isEnabled) await _scheduleNotification(updated);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
     }
+  }
+
+  /// Optimistically deletes reminder immediately
+  Future<void> delete(String id) async {
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.where((r) => r.id != id).toList());
+
+    try {
+      await NotificationService.instance.cancelNotification(
+        NotificationService.idFromString(id),
+      );
+      await _repo.delete(id);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
+  }
+
+  final _togglingIds = <String>{};
+
+  /// Optimistically toggles enabled switch immediately (0ms delay)
+  Future<void> toggle(String id) async {
+    if (_togglingIds.contains(id)) return;
+    _togglingIds.add(id);
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    final existing = current.where((r) => r.id == id).firstOrNull;
+    if (existing == null) {
+      _togglingIds.remove(id);
+      return;
+    }
+
+    final toggledOptimistic = existing.copyWith(isEnabled: !existing.isEnabled);
     state = AsyncData(
-      (state.valueOrNull ?? []).map((r) => r.id == toggled.id ? toggled : r).toList(),
+      current.map((r) => r.id == id ? toggledOptimistic : r).toList(),
     );
+
+    try {
+      final toggled = await _repo.toggleEnabled(id);
+      if (toggled.isEnabled) {
+        await _scheduleNotification(toggled);
+      } else {
+        await NotificationService.instance.cancelNotification(
+          NotificationService.idFromString(toggled.id),
+        );
+      }
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    } finally {
+      _togglingIds.remove(id);
+    }
   }
 
   Future<void> _scheduleNotification(ReminderItem item) async {
+    DateTimeComponents? matchComponents;
+    switch (item.recurrence) {
+      case ReminderRecurrence.daily:
+        matchComponents = DateTimeComponents.time;
+      case ReminderRecurrence.weekly:
+        matchComponents = DateTimeComponents.dayOfWeekAndTime;
+      case ReminderRecurrence.monthly:
+        matchComponents = DateTimeComponents.dayOfMonthAndTime;
+      case ReminderRecurrence.none:
+      case ReminderRecurrence.custom:
+        matchComponents = null;
+    }
+
     await NotificationService.instance.scheduleNotification(
       id: NotificationService.idFromString(item.id),
       title: 'Logspad Reminder',
       body: item.title,
       scheduledTime: item.scheduledTime,
+      matchDateTimeComponents: matchComponents,
     );
   }
 }

@@ -5,7 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
+import 'package:my_logs/core/widgets/empty_state.dart';
 import 'package:my_logs/core/widgets/media_letter_placeholder.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
 import 'package:my_logs/features/watch/presentation/widgets/media_detail_status_card.dart';
@@ -32,9 +36,17 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
 
   @override
   void dispose() {
-    _notesDebounce?.cancel();
+    _flushNotes(widget.id);
     _notesController.dispose();
     super.dispose();
+  }
+
+  void _flushNotes(String itemId) {
+    if (_notesDebounce?.isActive ?? false) {
+      final text = _notesController.text;
+      _notesDebounce?.cancel();
+      ref.read(mediaListProvider.notifier).updateNotes(itemId, text);
+    }
   }
 
   void _onNotesChanged(String itemId) {
@@ -53,12 +65,44 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final mediaListAsync = ref.watch(mediaListProvider);
     final item = ref.watch(mediaByIdProvider(widget.id));
+
+    if (mediaListAsync.isLoading && item == null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: AppColors.primary,
+            onPressed: () => context.canPop() ? context.pop() : context.go('/watch'),
+          ),
+        ),
+        body: const ShimmerSkeletonList(itemCount: 3, cardHeight: 120),
+      );
+    }
 
     if (item == null) {
       return Scaffold(
-        appBar: AppBar(leading: const BackButton()),
-        body: const Center(child: Text('Item not found')),
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: AppColors.primary,
+            onPressed: () => context.canPop() ? context.pop() : context.go('/watch'),
+          ),
+        ),
+        body: Center(
+          child: EmptyState(
+            icon: Icons.movie_filter_outlined,
+            title: 'Item not found',
+            subtitle: 'This item may have been removed or moved.',
+            actionLabel: 'Go to Watch Hub',
+            onAction: () => context.canPop() ? context.pop() : context.go('/watch'),
+          ),
+        ),
       );
     }
 
@@ -68,29 +112,36 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
       _notesInitialised = true;
     }
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: CustomScrollView(
-        slivers: [
-          // ── Hero banner ──────────────────────────────────────────────────
-          SliverAppBar(
-            expandedHeight: 320,
-            pinned: true,
-            backgroundColor: AppColors.surface,
-            leading: Padding(
-              padding: const EdgeInsets.all(8),
-              child: CircleAvatar(
-                backgroundColor: AppColors.surfaceContainerLowest.withValues(
-                  alpha: 0.85,
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  color: AppColors.onSurface,
-                  onPressed: () =>
-                      context.canPop() ? context.pop() : context.go('/watch'),
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _flushNotes(widget.id);
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: CustomScrollView(
+          slivers: [
+            // ── Hero banner ──────────────────────────────────────────────────
+            SliverAppBar(
+              expandedHeight: 320,
+              pinned: true,
+              backgroundColor: AppColors.surface,
+              leading: Padding(
+                padding: const EdgeInsets.all(8),
+                child: CircleAvatar(
+                  backgroundColor: AppColors.surfaceContainerLowest.withValues(
+                    alpha: 0.85,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    color: AppColors.onSurface,
+                    onPressed: () {
+                      _flushNotes(widget.id);
+                      context.canPop() ? context.pop() : context.go('/watch');
+                    },
+                  ),
                 ),
               ),
-            ),
             actions: [
               if (_savedIndicator)
                 Padding(
@@ -118,35 +169,28 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                     ),
                     onPressed: () async {
                       final router = GoRouter.of(context);
-                      final confirm = await showDialog<bool>(
+                      final confirm = await showAppConfirmationDialog(
                         context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Delete Log'),
-                          content: const Text(
-                            'Are you sure you want to delete this log?',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => ctx.pop(false),
-                              child: const Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () => ctx.pop(true),
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppColors.error,
-                              ),
-                              child: const Text('Delete'),
-                            ),
-                          ],
-                        ),
+                        title: 'Delete Log',
+                        message: 'Are you sure you want to delete this log? This cannot be undone.',
+                        confirmLabel: 'Delete',
+                        isDestructive: true,
+                        icon: Icons.delete_outline_rounded,
                       );
-                      if (confirm == true && mounted) {
+                      if (confirm == true && context.mounted) {
                         final canPop = router.canPop();
-                        await ref
-                            .read(mediaListProvider.notifier)
-                            .delete(widget.id);
-                        if (mounted) {
-                          canPop ? router.pop() : router.go('/watch');
+                        try {
+                          await ref
+                              .read(mediaListProvider.notifier)
+                              .delete(widget.id);
+                          if (context.mounted) {
+                            AppSnackBar.showSuccess(context, 'Media log deleted');
+                            canPop ? router.pop() : router.go('/watch');
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            AppSnackBar.showError(context, 'Failed to delete media log: $e');
+                          }
                         }
                       }
                     },
@@ -248,11 +292,20 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   // ── Status & Rating card ──────────────────────────────
                   MediaDetailStatusCard(
                     item: item,
-                    onStatusChanged: (s) {
+                    onStatusChanged: (s) async {
                       if (s != null) {
-                        ref
-                            .read(mediaListProvider.notifier)
-                            .updateStatus(item.id, s);
+                        try {
+                          await ref
+                              .read(mediaListProvider.notifier)
+                              .updateStatus(item.id, s);
+                          if (context.mounted) {
+                            AppSnackBar.showSuccess(context, 'Status updated to ${s.label}');
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            AppSnackBar.showError(context, 'Failed to update status: $e');
+                          }
+                        }
                       }
                     },
                     onRatingChanged: (r) => ref
@@ -318,6 +371,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/features/watch/data/firestore_media_repository.dart';
 import 'package:my_logs/features/watch/domain/media_repository.dart';
@@ -34,44 +35,80 @@ class MediaListNotifier extends AsyncNotifier<List<MediaItem>> {
     return _repo.getAll();
   }
 
+  /// Optimistically adds media item immediately
   Future<void> add(MediaItem item) async {
-    final created = await _repo.add(item);
-    state = AsyncData([...?state.valueOrNull, created]);
+    final current = state.valueOrNull ?? [];
+    final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
+    final optimisticItem = item.copyWith(id: id);
+    state = AsyncData([optimisticItem, ...current.where((m) => m.id != id)]);
+
+    try {
+      final saved = await _repo.add(optimisticItem);
+      final updatedList = (state.valueOrNull ?? [])
+          .map((m) => m.id == id ? saved : m)
+          .toList();
+      state = AsyncData(updatedList);
+    } catch (e) {
+      state = AsyncData(current);
+      rethrow;
+    }
   }
 
+  /// Optimistically updates media item immediately
   Future<void> updateItem(MediaItem item) async {
-    final updated = await _repo.update(item);
-    state = AsyncData(
-      (state.valueOrNull ?? []).map((m) => m.id == updated.id ? updated : m).toList(),
-    );
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.map((m) => m.id == item.id ? item : m).toList());
+
+    try {
+      await _repo.update(item);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
+  /// Optimistically deletes media item immediately
   Future<void> delete(String id) async {
-    await _repo.delete(id);
-    state = AsyncData(
-      (state.valueOrNull ?? []).where((m) => m.id != id).toList(),
-    );
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.where((m) => m.id != id).toList());
+
+    try {
+      await _repo.delete(id);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
+  /// Optimistically updates watch status immediately
   Future<void> updateStatus(String id, MediaStatus status) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((m) => m.id == id);
+    final existing = (state.valueOrNull ?? []).where((m) => m.id == id).firstOrNull;
+    if (existing == null) return;
     await updateItem(existing.copyWith(status: status));
   }
 
+  /// Optimistically updates user rating immediately
   Future<void> updateRating(String id, double rating) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((m) => m.id == id);
+    final existing = (state.valueOrNull ?? []).where((m) => m.id == id).firstOrNull;
+    if (existing == null) return;
     await updateItem(existing.copyWith(rating: rating));
   }
 
+  /// Optimistically increments episode counter immediately (no lag on tap)
   Future<void> incrementEpisode(String id) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((m) => m.id == id);
+    final existing = (state.valueOrNull ?? []).where((m) => m.id == id).firstOrNull;
+    if (existing == null) return;
     final newCount = (existing.episodesWatched + 1)
         .clamp(0, existing.totalEpisodes ?? 9999);
     await updateItem(existing.copyWith(episodesWatched: newCount));
   }
 
+  /// Optimistically updates notes immediately
   Future<void> updateNotes(String id, String notes) async {
-    final existing = (state.valueOrNull ?? []).firstWhere((m) => m.id == id);
+    final existing = (state.valueOrNull ?? []).where((m) => m.id == id).firstOrNull;
+    if (existing == null) return;
     await updateItem(existing.copyWith(notes: notes));
   }
 }

@@ -58,7 +58,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyB4bCLBPcfBBzEl_NOEemf8z-GF73NdWKg',
-    appId: '1:106576335129:android:6044d7e089fec81b07b588',
+    appId: '1:106576335129:android:8815090f11f5e6db07b588',
     messagingSenderId: '106576335129',
     projectId: 'mylogs-7b835',
     storageBucket: 'mylogs-7b835.firebasestorage.app',
@@ -70,6 +70,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '106576335129',
     projectId: 'mylogs-7b835',
     storageBucket: 'mylogs-7b835.firebasestorage.app',
-    iosBundleId: 'com.example.myLogs',
+    iosBundleId: 'com.app.MyLogs',
   );
 }

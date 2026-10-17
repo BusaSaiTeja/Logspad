@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/learning_paths/application/learning_path_providers.dart';
 import 'package:my_logs/features/learning_paths/domain/models/learning_path.dart';
 import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
@@ -23,6 +24,7 @@ class _PathFormScreenState extends ConsumerState<PathFormScreen> {
   final List<_StepInput> _steps = [];
 
   bool _isEdit = false;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -82,9 +84,10 @@ class _PathFormScreenState extends ConsumerState<PathFormScreen> {
   }
 
   Future<void> _save() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
     final router = GoRouter.of(context);
-    final messenger = ScaffoldMessenger.of(context);
 
     try {
       final now = DateTime.now();
@@ -132,12 +135,15 @@ class _PathFormScreenState extends ConsumerState<PathFormScreen> {
             ));
       }
       if (!mounted) return;
+      AppSnackBar.showSuccess(
+        context,
+        _isEdit ? 'Learning path updated successfully' : 'Learning path created successfully',
+      );
       router.pop();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed to save learning path: $e')),
-      );
+      setState(() => _isSubmitting = false);
+      AppSnackBar.showError(context, 'Failed to save learning path: $e');
     }
   }
 
@@ -156,7 +162,16 @@ class _PathFormScreenState extends ConsumerState<PathFormScreen> {
             style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
         centerTitle: false,
         actions: [
-          TextButton(onPressed: _save, child: Text('Save', style: AppTypography.labelMdPrimary())),
+          TextButton(
+            onPressed: _isSubmitting ? null : _save,
+            child: _isSubmitting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  )
+                : Text('Save', style: AppTypography.labelMdPrimary()),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(

@@ -17,14 +17,7 @@ _$WorkspaceItemImpl _$$WorkspaceItemImplFromJson(Map<String, dynamic> json) =>
           (json['enabledFeatures'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
-          const [
-            'notes',
-            'tasks',
-            'reminders',
-            'read',
-            'watch',
-            'learning_paths',
-          ],
+          const ['notes', 'tasks', 'reminders'],
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );

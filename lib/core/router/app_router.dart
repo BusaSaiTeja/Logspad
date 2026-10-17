@@ -24,8 +24,10 @@ import 'package:my_logs/features/auth/presentation/login_screen.dart';
 import 'package:my_logs/features/auth/presentation/register_screen.dart';
 import 'package:my_logs/features/auth/presentation/verify_email_screen.dart';
 import 'package:my_logs/features/profile/presentation/profile_screen.dart';
+import 'package:my_logs/features/settings/presentation/settings_screen.dart';
 import 'package:my_logs/features/workspaces/presentation/feature_marketplace_screen.dart';
 import 'package:my_logs/features/workspaces/presentation/widgets/notion_workspace_drawer.dart';
+import 'package:my_logs/features/ai_assistant/presentation/ai_assistant_screen.dart';
 
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
@@ -303,8 +305,16 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const ProfileScreen(),
     ),
     GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsScreen(),
+    ),
+    GoRoute(
       path: '/marketplace',
       builder: (context, state) => const FeatureMarketplaceScreen(),
+    ),
+    GoRoute(
+      path: '/ai-assistant',
+      builder: (context, state) => const AiAssistantScreen(),
     ),
     GoRoute(
       path: '/login',

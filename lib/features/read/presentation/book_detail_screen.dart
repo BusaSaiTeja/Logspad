@@ -6,7 +6,11 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
+import 'package:my_logs/core/widgets/empty_state.dart';
 import 'package:my_logs/core/widgets/rating_stars.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/read/application/book_providers.dart';
 import 'package:my_logs/features/read/domain/models/book_item.dart';
 
@@ -32,9 +36,17 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
 
   @override
   void dispose() {
-    _notesDebounce?.cancel();
+    _flushNotes(widget.id);
     _notesCtrl.dispose();
     super.dispose();
+  }
+
+  void _flushNotes(String bookId) {
+    if (_notesDebounce?.isActive ?? false) {
+      final text = _notesCtrl.text;
+      _notesDebounce?.cancel();
+      ref.read(bookListProvider.notifier).updateNotes(bookId, text);
+    }
   }
 
   void _onNotesChanged(String bookId) {
@@ -51,12 +63,44 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bookListAsync = ref.watch(bookListProvider);
     final book = ref.watch(bookByIdProvider(widget.id));
+
+    if (bookListAsync.isLoading && book == null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: AppColors.primary,
+            onPressed: () => context.canPop() ? context.pop() : context.go('/read'),
+          ),
+        ),
+        body: const ShimmerSkeletonList(itemCount: 3, cardHeight: 120),
+      );
+    }
 
     if (book == null) {
       return Scaffold(
-        appBar: AppBar(leading: const BackButton()),
-        body: const Center(child: Text('Book not found')),
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: AppColors.primary,
+            onPressed: () => context.canPop() ? context.pop() : context.go('/read'),
+          ),
+        ),
+        body: Center(
+          child: EmptyState(
+            icon: Icons.book_outlined,
+            title: 'Book not found',
+            subtitle: 'This book may have been removed or moved.',
+            actionLabel: 'Go to Read Tracker',
+            onAction: () => context.canPop() ? context.pop() : context.go('/read'),
+          ),
+        ),
       );
     }
 
@@ -69,26 +113,34 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
     final isInCollection = book.isCollection || book.status == BookStatus.collection;
     final currentReadingStatus = (book.status == BookStatus.collection) ? BookStatus.toRead : book.status;
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: CustomScrollView(
-        slivers: [
-          // ── Hero Banner ──────────────────────────────────────────────────
-          SliverAppBar(
-            expandedHeight: 320,
-            pinned: true,
-            backgroundColor: AppColors.surface,
-            leading: Padding(
-              padding: const EdgeInsets.all(8),
-              child: CircleAvatar(
-                backgroundColor: AppColors.surfaceContainerLowest.withValues(alpha: 0.85),
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  color: AppColors.onSurface,
-                  onPressed: () => context.canPop() ? context.pop() : context.go('/read'),
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _flushNotes(widget.id);
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: CustomScrollView(
+          slivers: [
+            // ── Hero Banner ──────────────────────────────────────────────────
+            SliverAppBar(
+              expandedHeight: 320,
+              pinned: true,
+              backgroundColor: AppColors.surface,
+              leading: Padding(
+                padding: const EdgeInsets.all(8),
+                child: CircleAvatar(
+                  backgroundColor: AppColors.surfaceContainerLowest.withValues(alpha: 0.85),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    color: AppColors.onSurface,
+                    onPressed: () {
+                      _flushNotes(widget.id);
+                      context.canPop() ? context.pop() : context.go('/read');
+                    },
+                  ),
                 ),
               ),
-            ),
             actions: [
               if (_savedIndicator)
                 Padding(
@@ -105,27 +157,29 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                   child: IconButton(
                     icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
                     onPressed: () async {
-                      final confirm = await showDialog<bool>(
+                      final confirm = await showAppConfirmationDialog(
                         context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Delete Book'),
-                          content: const Text('Are you sure you want to delete this book?'),
-                          actions: [
-                            TextButton(onPressed: () => ctx.pop(false), child: const Text('Cancel')),
-                            TextButton(
-                              onPressed: () => ctx.pop(true),
-                              style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                              child: const Text('Delete'),
-                            ),
-                          ],
-                        ),
+                        title: 'Delete Book',
+                        message: 'Are you sure you want to delete this book? This cannot be undone.',
+                        confirmLabel: 'Delete',
+                        isDestructive: true,
+                        icon: Icons.delete_outline_rounded,
                       );
                       if (confirm == true && context.mounted) {
-                        ref.read(bookListProvider.notifier).delete(widget.id);
-                        if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go('/read');
+                        try {
+                          await ref.read(bookListProvider.notifier).delete(widget.id);
+                          if (context.mounted) {
+                            AppSnackBar.showSuccess(context, 'Book deleted');
+                            if (context.canPop()) {
+                              context.pop();
+                            } else {
+                              context.go('/read');
+                            }
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            AppSnackBar.showError(context, 'Failed to delete book: $e');
+                          }
                         }
                       }
                     },
@@ -235,9 +289,18 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                                     child: DropdownButtonHideUnderline(
                                       child: DropdownButton<BookStatus>(
                                         value: currentReadingStatus,
-                                        onChanged: (s) {
+                                        onChanged: (s) async {
                                           if (s != null) {
-                                            ref.read(bookListProvider.notifier).updateStatus(book.id, s);
+                                            try {
+                                              await ref.read(bookListProvider.notifier).updateStatus(book.id, s);
+                                              if (context.mounted) {
+                                                AppSnackBar.showSuccess(context, 'Status updated to ${s.label}');
+                                              }
+                                            } catch (e) {
+                                              if (context.mounted) {
+                                                AppSnackBar.showError(context, 'Failed to update status: $e');
+                                              }
+                                            }
                                           }
                                         },
                                         isDense: true,
@@ -333,8 +396,20 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                               Switch.adaptive(
                                 value: isInCollection,
                                 activeTrackColor: AppColors.primary,
-                                onChanged: (val) {
-                                  ref.read(bookListProvider.notifier).toggleCollection(book.id, val);
+                                onChanged: (val) async {
+                                  try {
+                                    await ref.read(bookListProvider.notifier).toggleCollection(book.id, val);
+                                    if (context.mounted) {
+                                      AppSnackBar.showSuccess(
+                                        context,
+                                        val ? 'Added to My Collection' : 'Removed from My Collection',
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      AppSnackBar.showError(context, 'Failed to update collection: $e');
+                                    }
+                                  }
                                 },
                               ),
                             ],
@@ -381,6 +456,7 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

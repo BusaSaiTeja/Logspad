@@ -81,7 +81,7 @@ class FeatureMarketplaceModal extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final activeWs = ref.watch(activeWorkspaceProvider);
     final enabledKeys = activeWs?.enabledFeatures ??
-        ['notes', 'tasks', 'reminders', 'read', 'watch', 'learning_paths'];
+        const ['notes', 'tasks', 'reminders'];
 
     return Container(
       constraints: BoxConstraints(

@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/reminders/application/reminder_providers.dart';
 import 'package:my_logs/features/reminders/domain/models/reminder_item.dart';
 import 'package:my_logs/features/reminders/presentation/widgets/reminder_recurrence_selector.dart';
@@ -25,6 +27,7 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
   ReminderRecurrence _recurrence = ReminderRecurrence.daily;
   bool _isEnabled = true;
   bool _isEdit = false;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -58,11 +61,16 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
   }
 
   Future<void> _pickDateTime() async {
+    final now = DateTime.now();
+    final earliestDate = _scheduledTime.isBefore(now)
+        ? _scheduledTime.subtract(const Duration(days: 1))
+        : now.subtract(const Duration(days: 1));
+
     final date = await showDatePicker(
       context: context,
       initialDate: _scheduledTime,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+      firstDate: earliestDate,
+      lastDate: now.add(const Duration(days: 365 * 5)),
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(
@@ -75,10 +83,11 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
   }
 
   Future<void> _save() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
     final now = DateTime.now();
     final router = GoRouter.of(context);
-    final messenger = ScaffoldMessenger.of(context);
     final customText = _recurrence == ReminderRecurrence.custom
         ? _customDaysCtrl.text.trim()
         : null;
@@ -110,12 +119,15 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
             ));
       }
       if (!mounted) return;
+      AppSnackBar.showSuccess(
+        context,
+        _isEdit ? 'Reminder updated successfully' : 'Reminder scheduled successfully',
+      );
       router.pop();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed to save reminder: $e')),
-      );
+      setState(() => _isSubmitting = false);
+      AppSnackBar.showError(context, 'Failed to save reminder: $e');
     }
   }
 
@@ -139,36 +151,42 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
               icon: const Icon(Icons.delete_outline_rounded),
               color: AppColors.error,
               onPressed: () async {
-                final confirm = await showDialog<bool>(
+                final confirm = await showAppConfirmationDialog(
                   context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Delete Reminder'),
-                    content: const Text('Are you sure you want to delete this reminder?'),
-                    actions: [
-                      TextButton(onPressed: () => ctx.pop(false), child: const Text('Cancel')),
-                      TextButton(
-                        onPressed: () => ctx.pop(true),
-                        style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                        child: const Text('Delete'),
-                      ),
-                    ],
-                  ),
+                  title: 'Delete Reminder',
+                  message: 'Are you sure you want to delete this reminder?',
+                  confirmLabel: 'Delete',
+                  icon: Icons.delete_outline_rounded,
+                  confirmColor: AppColors.error,
                 );
                 if (confirm == true && context.mounted) {
-                  ref.read(reminderListProvider.notifier).delete(reminderId!);
-                  if (context.canPop()) {
-                    context.pop();
-                  } else {
-                    context.go('/reminders');
+                  try {
+                    await ref.read(reminderListProvider.notifier).delete(reminderId!);
+                    if (context.mounted) {
+                      AppSnackBar.showSuccess(context, 'Reminder deleted');
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/reminders');
+                      }
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      AppSnackBar.showError(context, 'Failed to delete reminder: $e');
+                    }
                   }
                 }
               },
             ),
           TextButton(
-            onPressed: () {
-              _save();
-            },
-            child: Text('Save', style: AppTypography.labelMdPrimary()),
+            onPressed: _isSubmitting ? null : _save,
+            child: _isSubmitting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  )
+                : Text('Save', style: AppTypography.labelMdPrimary()),
           ),
         ],
       ),

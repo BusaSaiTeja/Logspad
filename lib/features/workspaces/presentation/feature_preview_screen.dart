@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/core/widgets/pill_tab_bar.dart';
 import 'package:my_logs/features/learning_paths/domain/models/learning_path.dart';
 import 'package:my_logs/features/learning_paths/presentation/widgets/learning_path_card.dart';
@@ -180,15 +181,11 @@ class _FeaturePreviewScreenState extends ConsumerState<FeaturePreviewScreen> {
                         .read(workspaceListProvider.notifier)
                         .toggleFeature(activeWs.id, widget.feature.key);
 
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isAdded
-                              ? 'Removed ${widget.feature.title} from workspace'
-                              : 'Added ${widget.feature.title} to workspace!',
-                        ),
-                        duration: const Duration(seconds: 2),
-                      ),
+                    AppSnackBar.showSuccess(
+                      context,
+                      isAdded
+                          ? 'Removed ${widget.feature.title} from workspace'
+                          : 'Added ${widget.feature.title} to workspace!',
                     );
                   }
                 },

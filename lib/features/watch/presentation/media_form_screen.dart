@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/core/widgets/media_letter_placeholder.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/watch/data/anilist_anime_service.dart';
@@ -58,6 +60,7 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
   MediaStatus _status = MediaStatus.planToWatch;
   double? _rating;
   bool _isEdit = false;
+  bool _isSubmitting = false;
 
   Timer? _debounceTimer;
   List<MediaFormSuggestion> _suggestions = [];
@@ -232,7 +235,9 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
   }
 
   Future<void> _save() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
     final genres = _genresCtrl.text
         .split(',')
         .map((g) => g.trim())
@@ -241,7 +246,6 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
     final now = DateTime.now();
 
     final router = GoRouter.of(context);
-    final messenger = ScaffoldMessenger.of(context);
 
     try {
       if (_isEdit && widget.itemId != null) {
@@ -283,36 +287,41 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
             );
       }
       if (!mounted) return;
+      AppSnackBar.showSuccess(
+        context,
+        _isEdit ? 'Media log updated successfully' : 'Added to Watch Hub',
+      );
       router.pop();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed to save media log: $e')),
-      );
+      setState(() => _isSubmitting = false);
+      AppSnackBar.showError(context, 'Failed to save media log: $e');
     }
   }
 
   Future<void> _confirmDelete() async {
-    final confirm = await showDialog<bool>(
+    final confirm = await showAppConfirmationDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Log'),
-        content: const Text('Are you sure you want to delete this log?'),
-        actions: [
-          TextButton(onPressed: () => ctx.pop(false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => ctx.pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      title: 'Delete Log',
+      message: 'Are you sure you want to delete this log?',
+      confirmLabel: 'Delete',
+      icon: Icons.delete_outline_rounded,
+      confirmColor: AppColors.error,
     );
     if (confirm == true && mounted) {
       final router = GoRouter.of(context);
       final canPop = router.canPop();
-      await ref.read(mediaListProvider.notifier).delete(widget.itemId!);
-      if (mounted) canPop ? router.pop() : router.go('/watch');
+      try {
+        await ref.read(mediaListProvider.notifier).delete(widget.itemId!);
+        if (mounted) {
+          AppSnackBar.showSuccess(context, 'Media log deleted');
+          canPop ? router.pop() : router.go('/watch');
+        }
+      } catch (e) {
+        if (mounted) {
+          AppSnackBar.showError(context, 'Failed to delete media log: $e');
+        }
+      }
     }
   }
 
@@ -345,8 +354,14 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
                 onPressed: _confirmDelete,
               ),
             TextButton(
-              onPressed: _save,
-              child: Text('Save', style: AppTypography.labelMdPrimary()),
+              onPressed: _isSubmitting ? null : _save,
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                    )
+                  : Text('Save', style: AppTypography.labelMdPrimary()),
             ),
           ],
         ),
@@ -506,6 +521,7 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
               _label('Watch Status'),
               const SizedBox(height: 6),
               DropdownButtonFormField<MediaStatus>(
+                key: ValueKey(_status),
                 initialValue: _status,
                 decoration: const InputDecoration(),
                 onChanged: (s) => setState(() => _status = s!),

@@ -73,6 +73,15 @@ abstract final class AppTheme {
           borderRadius: BorderRadius.circular(AppSpacing.radius2Xl),
         ),
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.surfaceContainerLowest,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radius2Xl),
+        ),
+        titleTextStyle: AppTypography.headlineMd,
+        contentTextStyle: AppTypography.bodyMdVariant(),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.surfaceContainerLow,
@@ -151,6 +160,93 @@ abstract final class AppTheme {
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: AppColors.primary,
         foregroundColor: AppColors.onPrimary,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(AppSpacing.radiusXl)),
+        ),
+      ),
+    );
+  }
+
+  static ThemeData get dark {
+    final colorScheme = ColorScheme.dark(
+      primary: const Color(0xFF818CF8),
+      onPrimary: const Color(0xFF1E1B4B),
+      primaryContainer: const Color(0xFF3730A3),
+      onPrimaryContainer: const Color(0xFFE0E7FF),
+      secondary: const Color(0xFF38BDF8),
+      onSecondary: const Color(0xFF0C4A6E),
+      secondaryContainer: const Color(0xFF0369A1),
+      onSecondaryContainer: const Color(0xFFE0F2FE),
+      surface: const Color(0xFF0F172A),
+      onSurface: const Color(0xFFF8FAFC),
+      onSurfaceVariant: const Color(0xFF94A3B8),
+      surfaceContainerLowest: const Color(0xFF020617),
+      surfaceContainerLow: const Color(0xFF0F172A),
+      surfaceContainer: const Color(0xFF1E293B),
+      surfaceContainerHigh: const Color(0xFF334155),
+      surfaceContainerHighest: const Color(0xFF475569),
+      outline: const Color(0xFF64748B),
+      outlineVariant: const Color(0xFF334155),
+      error: const Color(0xFFF87171),
+      onError: const Color(0xFF450A0A),
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: const Color(0xFF090D16),
+      textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFF0F172A),
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+      ),
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radius2Xl),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF1E293B),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+          borderSide: const BorderSide(color: Color(0xFF818CF8), width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.stackGap,
+          vertical: 14,
+        ),
+        hintStyle: const TextStyle(color: Color(0xFF64748B)),
+      ),
+      dividerTheme: const DividerThemeData(
+        color: Color(0xFF1E293B),
+        thickness: 1,
+        space: 1,
+      ),
+      navigationBarTheme: const NavigationBarThemeData(
+        backgroundColor: Color(0xFF0F172A),
+        indicatorColor: Color(0xFF3730A3),
+        indicatorShape: StadiumBorder(),
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: Color(0xFF818CF8),
+        foregroundColor: Color(0xFF1E1B4B),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppSpacing.radiusXl)),

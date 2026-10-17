@@ -15,7 +15,7 @@ void main() async {
   if (!kIsWeb) {
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      cacheSizeBytes: 104857600, // 100 MB bounded persistence
     );
   }
 
@@ -32,6 +32,7 @@ class LogspadApp extends StatelessWidget {
       title: 'Logspad',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      themeMode: ThemeMode.light,
       routerConfig: appRouter,
     );
   }

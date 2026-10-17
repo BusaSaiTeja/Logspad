@@ -4,13 +4,16 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/core/widgets/pill_tab_bar.dart';
 import 'package:my_logs/features/tasks/application/task_providers.dart';
 import 'package:my_logs/features/tasks/domain/models/task_item.dart';
 import 'package:my_logs/features/tasks/presentation/widgets/task_tile.dart';
 import 'package:my_logs/core/widgets/drawer_menu_button.dart';
 import 'package:my_logs/core/widgets/feature_more_options_button.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
@@ -42,6 +45,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final taskListAsync = ref.watch(taskListProvider);
     final today = ref.watch(todayTasksProvider);
     final upcoming = ref.watch(upcomingTasksProvider);
     final completed = ref.watch(completedTasksProvider);
@@ -72,7 +76,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               heroTag: 'tasks_fab',
               backgroundColor: AppColors.primary,
               foregroundColor: AppColors.onPrimary,
-              onPressed: () => context.push('/tasks/add'),
+              onPressed: () => SafeTap.run(() => context.push('/tasks/add')),
               child: const Icon(Icons.add_rounded),
             )
           : null,
@@ -87,31 +91,45 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               onTabSelected: _onTabSelected,
             ),
           ),
-          // ── Swipeable Task List PageView ──────────────────────────────────
+          // ── State Handler: Loading, Error, or Swipeable List ───────────────
           Expanded(
-            child: PageView(
-              controller: _pageController,
-              onPageChanged: (i) => setState(() => _selectedTab = i),
-              children: [
-                // ── Tab 0: Pending (Sections: Today + Upcoming) ─────────────
-                _buildPendingTab(today: today, upcoming: upcoming),
+            child: taskListAsync.when(
+              loading: () => const ShimmerSkeletonList(
+                itemCount: 5,
+                cardHeight: 74,
+              ),
+              error: (err, _) => ErrorStateView(
+                message: err.toString(),
+                onRetry: () => ref.refresh(taskListProvider),
+              ),
+              data: (_) => RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () async => ref.refresh(taskListProvider),
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (i) => setState(() => _selectedTab = i),
+                  children: [
+                    // ── Tab 0: Pending (Sections: Today + Upcoming) ─────────────
+                    _buildPendingTab(today: today, upcoming: upcoming),
 
-                // ── Tab 1: Completed (Clean History View, No Add Button) ───
-                _buildSimpleTaskList(
-                  tasks: completed,
-                  emptyIcon: Icons.check_circle_outline_rounded,
-                  emptyTitle: 'No completed tasks yet',
-                  emptySubtitle: 'Tasks you mark as done will appear here',
-                ),
+                    // ── Tab 1: Completed (Clean History View, No Add Button) ───
+                    _buildSimpleTaskList(
+                      tasks: completed,
+                      emptyIcon: Icons.check_circle_outline_rounded,
+                      emptyTitle: 'No completed tasks yet',
+                      emptySubtitle: 'Tasks you mark as done will appear here',
+                    ),
 
-                // ── Tab 2: Missed (Clean Warning View, No Add Button) ───────
-                _buildSimpleTaskList(
-                  tasks: missed,
-                  emptyIcon: Icons.warning_amber_rounded,
-                  emptyTitle: 'No missed tasks',
-                  emptySubtitle: 'Great job keeping up with deadlines!',
+                    // ── Tab 2: Missed (Clean Warning View, No Add Button) ───────
+                    _buildSimpleTaskList(
+                      tasks: missed,
+                      emptyIcon: Icons.warning_amber_rounded,
+                      emptyTitle: 'No missed tasks',
+                      emptySubtitle: 'Great job keeping up with deadlines!',
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -148,11 +166,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           ...today.map((t) => TaskTile(
                 task: t,
                 showDate: false,
-                onToggle: () =>
-                    ref.read(taskListProvider.notifier).toggleComplete(t.id),
-                onTap: () => context.push('/tasks/${t.id}/edit'),
-                onDelete: () =>
-                    ref.read(taskListProvider.notifier).delete(t.id),
+                onToggle: () => _handleToggle(t),
+                onTap: () => SafeTap.run(() => context.push('/tasks/${t.id}/edit')),
+                onDelete: () => _handleDelete(t.id),
               )),
           const SizedBox(height: 16),
         ],
@@ -168,11 +184,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           const SizedBox(height: 8),
           ...upcoming.map((t) => TaskTile(
                 task: t,
-                onToggle: () =>
-                    ref.read(taskListProvider.notifier).toggleComplete(t.id),
-                onTap: () => context.push('/tasks/${t.id}/edit'),
-                onDelete: () =>
-                    ref.read(taskListProvider.notifier).delete(t.id),
+                onToggle: () => _handleToggle(t),
+                onTap: () => SafeTap.run(() => context.push('/tasks/${t.id}/edit')),
+                onDelete: () => _handleDelete(t.id),
               )),
           const SizedBox(height: 12),
         ],
@@ -241,11 +255,40 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         final t = tasks[index];
         return TaskTile(
           task: t,
-          onToggle: () => ref.read(taskListProvider.notifier).toggleComplete(t.id),
-          onTap: () => context.push('/tasks/${t.id}/edit'),
-          onDelete: () => ref.read(taskListProvider.notifier).delete(t.id),
+          onToggle: () => _handleToggle(t),
+          onTap: () => SafeTap.run(() => context.push('/tasks/${t.id}/edit')),
+          onDelete: () => _handleDelete(t.id),
         );
       },
     );
+  }
+
+  Future<void> _handleToggle(TaskItem task) async {
+    try {
+      await ref.read(taskListProvider.notifier).toggleComplete(task.id);
+      if (mounted) {
+        AppSnackBar.showSuccess(
+          context,
+          task.isCompleted ? 'Task marked as pending' : 'Task completed',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppSnackBar.showError(context, 'Failed to update task: $e');
+      }
+    }
+  }
+
+  Future<void> _handleDelete(String taskId) async {
+    try {
+      await ref.read(taskListProvider.notifier).delete(taskId);
+      if (mounted) {
+        AppSnackBar.showSuccess(context, 'Task deleted');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppSnackBar.showError(context, 'Failed to delete task: $e');
+      }
+    }
   }
 }

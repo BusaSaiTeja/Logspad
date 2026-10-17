@@ -4,13 +4,16 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/core/widgets/pill_tab_bar.dart';
 import 'package:my_logs/features/notes/application/note_providers.dart';
 import 'package:my_logs/features/notes/presentation/widgets/note_card.dart';
 
 import 'package:my_logs/core/widgets/drawer_menu_button.dart';
 import 'package:my_logs/core/widgets/feature_more_options_button.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class NotesScreen extends ConsumerStatefulWidget {
   const NotesScreen({super.key});
@@ -96,7 +99,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         heroTag: 'notes_fab',
         backgroundColor: AppColors.primary,
         foregroundColor: AppColors.onPrimary,
-        onPressed: () => context.push('/notes/add'),
+        onPressed: () => SafeTap.run(() => context.push('/notes/add')),
         child: const Icon(Icons.add_rounded),
       ),
       body: Column(
@@ -136,49 +139,74 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           // ── Swipeable Notes Grid PageView ─────────────────────────────────
           Expanded(
             child: notesAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2)),
-              error: (e, _) => Center(child: Text('Error: $e')),
+              loading: () => const ShimmerSkeletonList(
+                isGrid: true,
+                itemCount: 6,
+              ),
+              error: (e, _) => ErrorStateView(
+                message: e.toString(),
+                onRetry: () => ref.refresh(noteListProvider),
+              ),
               data: (notes) {
-                return PageView.builder(
-                  controller: _pageController,
-                  itemCount: categories.length,
-                  onPageChanged: (i) => setState(() => _selectedCategoryIndex = i),
-                  itemBuilder: (context, catIdx) {
-                    final catName = categories[catIdx];
-                    final filtered = catName == 'All'
-                        ? notes
-                        : notes.where((n) => n.tags.contains(catName)).toList();
+                return RefreshIndicator(
+                  color: AppColors.primary,
+                  onRefresh: () async => ref.refresh(noteListProvider),
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: categories.length,
+                    onPageChanged: (i) => setState(() => _selectedCategoryIndex = i),
+                    itemBuilder: (context, catIdx) {
+                      final catName = categories[catIdx];
+                      final filtered = catName == 'All'
+                          ? notes
+                          : notes.where((n) => n.tags.contains(catName)).toList();
 
-                    if (filtered.isEmpty) {
-                      return EmptyState(
-                        icon: Icons.sticky_note_2_outlined,
-                        title: 'No $catName notes',
-                        subtitle: 'Tap + to create a note in $catName',
-                        actionLabel: 'New Note',
-                        onAction: () => context.push('/notes/add'),
+                      if (filtered.isEmpty) {
+                        if (catName != 'All') {
+                          return SearchEmptyView(
+                            query: catName,
+                            onClear: () => _onCategorySelected(0),
+                          );
+                        }
+                        return EmptyState(
+                          icon: Icons.sticky_note_2_outlined,
+                          title: 'No notes yet',
+                          subtitle: 'Capture your thoughts, ideas, and logs. Tap + to start.',
+                          actionLabel: 'New Note',
+                          onAction: () => SafeTap.run(() => context.push('/notes/add')),
+                        );
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        child: GridView.builder(
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12.0,
+                            mainAxisSpacing: 12.0,
+                            childAspectRatio: 0.85,
+                          ),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, i) => NoteCard(
+                            note: filtered[i],
+                            onTap: () => SafeTap.run(() => context.push('/notes/${filtered[i].id}')),
+                            onDelete: () async {
+                              try {
+                                await ref.read(noteListProvider.notifier).delete(filtered[i].id);
+                                if (context.mounted) {
+                                  AppSnackBar.showSuccess(context, 'Note deleted');
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  AppSnackBar.showError(context, 'Failed to delete note: $e');
+                                }
+                              }
+                            },
+                          ),
+                        ),
                       );
-                    }
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      child: GridView.builder(
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 12.0,
-                          mainAxisSpacing: 12.0,
-                          childAspectRatio: 0.85,
-                        ),
-                        itemCount: filtered.length,
-                        itemBuilder: (context, i) => NoteCard(
-                          note: filtered[i],
-                          onTap: () => context.push('/notes/${filtered[i].id}'),
-                          onDelete: () =>
-                              ref.read(noteListProvider.notifier).delete(filtered[i].id),
-                        ),
-                      ),
-                    );
-                  },
+                    },
+                  ),
                 );
               },
             ),

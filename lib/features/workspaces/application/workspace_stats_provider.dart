@@ -30,8 +30,8 @@ class WorkspaceStats {
 
 final workspaceStatsProvider = Provider<WorkspaceStats>((ref) {
   final notes = ref.watch(workspaceFilteredNotesProvider).valueOrNull?.length ?? 0;
-  final tasks = ref.watch(todayTasksProvider).length;
-  final reminders = ref.watch(todayRemindersProvider).length;
+  final tasks = ref.watch(workspaceFilteredTasksProvider).length;
+  final reminders = ref.watch(reminderListProvider).valueOrNull?.length ?? 0;
   final books = ref.watch(workspaceFilteredBooksProvider).length;
   final media = ref.watch(workspaceFilteredMediaProvider).length;
   final paths = ref.watch(workspaceFilteredLearningPathsProvider).valueOrNull?.length ?? 0;

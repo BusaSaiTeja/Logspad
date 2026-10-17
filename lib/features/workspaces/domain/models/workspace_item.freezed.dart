@@ -25,7 +25,8 @@ mixin _$WorkspaceItem {
   String get name => throw _privateConstructorUsedError;
   String get iconName => throw _privateConstructorUsedError;
   int get colorValue => throw _privateConstructorUsedError;
-  bool get isDefault => throw _privateConstructorUsedError;
+  bool get isDefault =>
+      throw _privateConstructorUsedError; // Default features are strictly locked to the initial 3: notes, tasks, reminders.
   List<String> get enabledFeatures => throw _privateConstructorUsedError;
   DateTime get createdAt => throw _privateConstructorUsedError;
   DateTime get updatedAt => throw _privateConstructorUsedError;
@@ -215,14 +216,7 @@ class _$WorkspaceItemImpl implements _WorkspaceItem {
     this.iconName = 'person_outline_rounded',
     this.colorValue = 0xFF4F46E5,
     this.isDefault = false,
-    final List<String> enabledFeatures = const [
-      'notes',
-      'tasks',
-      'reminders',
-      'read',
-      'watch',
-      'learning_paths',
-    ],
+    final List<String> enabledFeatures = const ['notes', 'tasks', 'reminders'],
     required this.createdAt,
     required this.updatedAt,
   }) : _enabledFeatures = enabledFeatures;
@@ -243,7 +237,9 @@ class _$WorkspaceItemImpl implements _WorkspaceItem {
   @override
   @JsonKey()
   final bool isDefault;
+  // Default features are strictly locked to the initial 3: notes, tasks, reminders.
   final List<String> _enabledFeatures;
+  // Default features are strictly locked to the initial 3: notes, tasks, reminders.
   @override
   @JsonKey()
   List<String> get enabledFeatures {
@@ -337,7 +333,7 @@ abstract class _WorkspaceItem implements WorkspaceItem {
   @override
   int get colorValue;
   @override
-  bool get isDefault;
+  bool get isDefault; // Default features are strictly locked to the initial 3: notes, tasks, reminders.
   @override
   List<String> get enabledFeatures;
   @override

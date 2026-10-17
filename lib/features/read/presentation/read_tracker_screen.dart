@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
 import 'package:my_logs/core/widgets/pill_tab_bar.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/read/application/book_providers.dart';
 import 'package:my_logs/features/read/domain/models/book_item.dart';
 import 'package:my_logs/features/read/presentation/widgets/book_card.dart';
@@ -21,6 +23,7 @@ class ReadTrackerScreen extends ConsumerStatefulWidget {
 
 class _ReadTrackerScreenState extends ConsumerState<ReadTrackerScreen> {
   int _selectedTab = 0;
+  String _searchQuery = '';
   final PageController _pageController = PageController();
 
   static const _tabs = ['Reading', 'Read', 'To Read', 'Collection'];
@@ -50,6 +53,8 @@ class _ReadTrackerScreenState extends ConsumerState<ReadTrackerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bookListAsync = ref.watch(bookListProvider);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -66,12 +71,24 @@ class _ReadTrackerScreenState extends ConsumerState<ReadTrackerScreen> {
         heroTag: 'read_fab',
         backgroundColor: AppColors.primary,
         foregroundColor: AppColors.onPrimary,
-        onPressed: () => context.push('/read/add'),
+        onPressed: () => SafeTap.run(() => context.push('/read/add')),
         child: const Icon(Icons.add_rounded),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Search bar ────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 10.0, 16.0, 0),
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: const InputDecoration(
+                hintText: 'Search books by title or author...',
+                prefixIcon: Icon(Icons.search_rounded, color: AppColors.outline),
+              ),
+              style: AppTypography.bodyLg,
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.containerPadding, AppSpacing.stackGap, AppSpacing.containerPadding, 0),
@@ -83,37 +100,64 @@ class _ReadTrackerScreenState extends ConsumerState<ReadTrackerScreen> {
           ),
           const SizedBox(height: AppSpacing.stackGap),
           Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: _statuses.length,
-              onPageChanged: (i) => setState(() => _selectedTab = i),
-              itemBuilder: (context, tabIdx) {
-                final status = _statuses[tabIdx];
-                final books = ref.watch(booksByStatusProvider(status));
+            child: bookListAsync.when(
+              loading: () => const ShimmerSkeletonList(
+                itemCount: 5,
+                cardHeight: 96,
+              ),
+              error: (err, _) => ErrorStateView(
+                message: err.toString(),
+                onRetry: () => ref.refresh(bookListProvider),
+              ),
+              data: (_) => RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () async => ref.refresh(bookListProvider),
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: _statuses.length,
+                  onPageChanged: (i) => setState(() => _selectedTab = i),
+                  itemBuilder: (context, tabIdx) {
+                    final status = _statuses[tabIdx];
+                    final books = ref.watch(booksByStatusProvider(status));
+                    final filtered = _searchQuery.isEmpty
+                        ? books
+                        : books
+                            .where((b) =>
+                                b.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                                b.author.toLowerCase().contains(_searchQuery.toLowerCase()))
+                            .toList();
 
-                if (books.isEmpty) {
-                  return EmptyState(
-                    icon: Icons.book_outlined,
-                    title: 'No ${_tabs[tabIdx].toLowerCase()} books',
-                    subtitle: 'Add your first book to your library',
-                    actionLabel: 'Add Book',
-                    onAction: () => context.push('/read/add'),
-                  );
-                }
+                    if (filtered.isEmpty) {
+                      if (_searchQuery.isNotEmpty) {
+                        return SearchEmptyView(
+                          query: _searchQuery,
+                          onClear: () => setState(() => _searchQuery = ''),
+                        );
+                      }
+                      return EmptyState(
+                        icon: Icons.book_outlined,
+                        title: 'No ${_tabs[tabIdx].toLowerCase()} books',
+                        subtitle: 'Add your first book to your library',
+                        actionLabel: 'Add Book',
+                        onAction: () => SafeTap.run(() => context.push('/read/add')),
+                      );
+                    }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                  itemCount: books.length,
-                  itemBuilder: (context, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12.0),
-                    child: BookCard(
-                      book: books[i],
-                      onTap: () => context.push('/read/${books[i].id}'),
-                      onDelete: () => ref.read(bookListProvider.notifier).delete(books[i].id),
-                    ),
-                  ),
-                );
-              },
+                    return ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, i) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: BookCard(
+                          book: filtered[i],
+                          onTap: () => SafeTap.run(() => context.push('/read/${filtered[i].id}')),
+                          onDelete: () => ref.read(bookListProvider.notifier).delete(filtered[i].id),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ],

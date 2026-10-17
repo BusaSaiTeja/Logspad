@@ -26,6 +26,7 @@ dependencies:
   # Notifications
   flutter_local_notifications: ^17.2.4
   timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
 
   # Fonts
   google_fonts: ^6.2.0
@@ -55,3 +56,5 @@ flutter:
   uses-material-design: true
   assets:
     - shorebird.yaml
+    - assets/Logo.jpg
+    - assets/Logo.png

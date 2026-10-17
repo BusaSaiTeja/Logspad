@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tz_data;
 
 /// Wraps flutter_local_notifications for the app.
 /// Call [initialize] from main() before using.
-/// Phase 2: no changes needed — same service, Firestore triggers call these same methods.
 class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
@@ -19,6 +19,12 @@ class NotificationService {
 
   Future<void> initialize() async {
     tz_data.initializeTimeZones();
+    try {
+      final timeZoneName = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timeZoneName));
+    } catch (e) {
+      debugPrint('Failed to set local timezone, falling back to system/UTC: $e');
+    }
 
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -41,16 +47,29 @@ class NotificationService {
     }
   }
 
-  /// Schedule a one-time local notification at [scheduledTime].
+  /// Schedule a local notification at [scheduledTime].
   /// [id] must be stable for the same reminder so cancel works.
+  /// [matchDateTimeComponents] enables periodic repetition (daily, weekly, monthly).
   Future<void> scheduleNotification({
     required int id,
     required String title,
     required String body,
     required DateTime scheduledTime,
+    DateTimeComponents? matchDateTimeComponents,
   }) async {
     final location = tz.local;
-    final tzTime = tz.TZDateTime.from(scheduledTime, location);
+    var tzTime = tz.TZDateTime.from(scheduledTime, location);
+
+    // If periodic and original time has already passed, advance to the next occurrence
+    if (matchDateTimeComponents != null && tzTime.isBefore(tz.TZDateTime.now(location))) {
+      if (matchDateTimeComponents == DateTimeComponents.time) {
+        tzTime = tzTime.add(const Duration(days: 1));
+      } else if (matchDateTimeComponents == DateTimeComponents.dayOfWeekAndTime) {
+        tzTime = tzTime.add(const Duration(days: 7));
+      } else if (matchDateTimeComponents == DateTimeComponents.dayOfMonthAndTime) {
+        tzTime = tz.TZDateTime(location, tzTime.year, tzTime.month + 1, tzTime.day, tzTime.hour, tzTime.minute);
+      }
+    }
 
     await _plugin.zonedSchedule(
       id,
@@ -75,6 +94,7 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: matchDateTimeComponents,
     );
   }
 

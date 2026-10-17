@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 
 /// Reusable popup menu button for feature app bars.
@@ -19,39 +20,34 @@ class FeatureMoreOptionsButton extends StatelessWidget {
       icon: const Icon(Icons.more_vert_rounded, color: AppColors.onSurfaceVariant),
       tooltip: 'More options',
       onSelected: (value) {
-        if (value == 'settings' && onSettingsTap != null) {
-          onSettingsTap!();
-        } else if (value == 'disable' || value == 'hide') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                value == 'disable'
-                    ? 'Disable $featureName (Coming in Phase 3)'
-                    : 'Hide $featureName (Coming in Phase 3)',
-              ),
-              duration: const Duration(seconds: 2),
-            ),
-          );
+        if (value == 'settings') {
+          if (onSettingsTap != null) {
+            onSettingsTap!();
+          } else {
+            context.push('/settings');
+          }
+        } else if (value == 'marketplace') {
+          context.push('/marketplace');
         }
       },
       itemBuilder: (context) => [
         const PopupMenuItem(
-          value: 'disable',
+          value: 'marketplace',
           child: Row(
             children: [
-              Icon(Icons.pause_circle_outline_rounded, size: 18, color: AppColors.onSurfaceVariant),
-              SizedBox(width: 8),
-              Text('Disable feature'),
+              Icon(Icons.storefront_outlined, size: 18, color: AppColors.onSurfaceVariant),
+              SizedBox(width: 10),
+              Text('Feature Marketplace'),
             ],
           ),
         ),
         const PopupMenuItem(
-          value: 'hide',
+          value: 'settings',
           child: Row(
             children: [
-              Icon(Icons.visibility_off_outlined, size: 18, color: AppColors.onSurfaceVariant),
-              SizedBox(width: 8),
-              Text('Hide feature'),
+              Icon(Icons.settings_outlined, size: 18, color: AppColors.onSurfaceVariant),
+              SizedBox(width: 10),
+              Text('Settings'),
             ],
           ),
         ),

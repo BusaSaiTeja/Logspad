@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
 import 'package:my_logs/core/utils/date_utils.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
 import 'package:my_logs/features/notes/domain/models/note_item.dart';
 
 class NoteCard extends StatelessWidget {
@@ -89,23 +89,17 @@ class NoteCard extends StatelessWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context) {
-    showDialog(
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showAppConfirmationDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete note?'),
-        content: Text('Delete "${note.title}"? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => ctx.pop(), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              ctx.pop();
-              onDelete();
-            },
-            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
+      title: 'Delete note?',
+      message: 'Delete "${note.title}"? This cannot be undone.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+      icon: Icons.delete_outline_rounded,
     );
+    if (confirmed == true) {
+      onDelete();
+    }
   }
 }

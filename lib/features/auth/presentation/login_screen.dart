@@ -8,6 +8,7 @@ import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -49,11 +50,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Signed in successfully! 👋'),
-          backgroundColor: AppColors.primary,
-        ),
+      AppSnackBar.showSuccess(
+        context,
+        'Signed in successfully! 👋',
       );
       if (context.canPop()) {
         context.pop();
@@ -90,11 +89,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (credential == null) return;
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Signed in with Google! 👋'),
-          backgroundColor: AppColors.primary,
-        ),
+      AppSnackBar.showSuccess(
+        context,
+        'Signed in with Google! 👋',
       );
       if (context.canPop()) {
         context.pop();
@@ -232,21 +229,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     .read(authServiceProvider)
                     .sendPasswordResetEmail(email);
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Password reset email sent! Check your inbox.',
-                    ),
-                    backgroundColor: AppColors.primary,
-                  ),
+                AppSnackBar.showSuccess(
+                  context,
+                  'Password reset email sent! Check your inbox.',
                 );
               } catch (e) {
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: $e'),
-                    backgroundColor: const Color(0xFFDC2626),
-                  ),
+                AppSnackBar.showError(
+                  context,
+                  'Could not send reset email: $e',
                 );
               }
             },
@@ -298,11 +289,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   // ── Brand Monogram Tile ──────────────────────────────────
                   Center(
                     child: Container(
-                      width: 52,
-                      height: 52,
+                      width: 56,
+                      height: 56,
                       decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(15),
                         boxShadow: [
                           BoxShadow(
                             color: AppColors.primary.withValues(alpha: 0.28),
@@ -311,11 +301,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                         ],
                       ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.sticky_note_2_rounded,
-                          size: 26,
-                          color: Colors.white,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(15),
+                        child: Image.asset(
+                          'assets/Logo.png',
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
                         ),
                       ),
                     ),

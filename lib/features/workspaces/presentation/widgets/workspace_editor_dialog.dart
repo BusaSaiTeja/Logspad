@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
 import 'package:my_logs/features/workspaces/domain/models/workspace_item.dart';
 import 'package:my_logs/features/workspaces/presentation/widgets/workspace_icons.dart';
@@ -96,9 +97,18 @@ class _WorkspaceEditorDialogState extends ConsumerState<WorkspaceEditorDialog> {
               colorValue: _selectedColor,
             );
       }
-      if (mounted) context.pop();
-    } catch (_) {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        context.pop();
+        AppSnackBar.showSuccess(
+          context,
+          _isEditMode ? 'Workspace updated successfully' : 'Workspace created successfully',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        AppSnackBar.showError(context, 'Failed to save workspace: $e');
+      }
     }
   }
 

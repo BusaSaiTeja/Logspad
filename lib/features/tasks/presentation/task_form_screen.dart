@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/tasks/application/task_providers.dart';
 import 'package:my_logs/features/tasks/domain/models/task_item.dart';
 import 'package:my_logs/features/tasks/presentation/widgets/task_date_picker_tile.dart';
@@ -55,6 +57,8 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
     super.dispose();
   }
 
+  bool _isSubmitting = false;
+
   Future<void> _pickDate() async {
     final d = await showDatePicker(
       context: context,
@@ -66,41 +70,56 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
   }
 
   Future<void> _save() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
     FocusScope.of(context).unfocus();
     final now = DateTime.now();
 
-    if (_isEdit) {
-      final existing = (ref.read(taskListProvider).valueOrNull ?? [])
-          .where((t) => t.id == widget.taskId)
-          .firstOrNull;
-      if (existing != null) {
-        ref.read(taskListProvider.notifier).updateItem(existing.copyWith(
+    try {
+      if (_isEdit) {
+        final existing = (ref.read(taskListProvider).valueOrNull ?? [])
+            .where((t) => t.id == widget.taskId)
+            .firstOrNull;
+        if (existing != null) {
+          await ref.read(taskListProvider.notifier).updateItem(existing.copyWith(
+                title: _titleCtrl.text.trim(),
+                description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+                priority: _priority,
+                dueDate: _dueDate,
+                updatedAt: now,
+              ));
+        }
+      } else {
+        final activeWorkspaceId = ref.read(activeWorkspaceIdProvider).valueOrNull ?? '';
+        await ref.read(taskListProvider.notifier).add(TaskItem(
+              id: '',
+              workspaceId: activeWorkspaceId,
               title: _titleCtrl.text.trim(),
               description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
               priority: _priority,
               dueDate: _dueDate,
+              createdAt: now,
               updatedAt: now,
             ));
       }
-    } else {
-      final activeWorkspaceId = ref.read(activeWorkspaceIdProvider).valueOrNull ?? '';
-      ref.read(taskListProvider.notifier).add(TaskItem(
-            id: '',
-            workspaceId: activeWorkspaceId,
-            title: _titleCtrl.text.trim(),
-            description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
-            priority: _priority,
-            dueDate: _dueDate,
-            createdAt: now,
-            updatedAt: now,
-          ));
-    }
 
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go('/tasks');
+      if (mounted) {
+        AppSnackBar.showSuccess(
+          context,
+          _isEdit ? 'Task updated successfully' : 'Task created successfully',
+        );
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/tasks');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        AppSnackBar.showError(context, 'Failed to save task: $e');
+      }
     }
   }
 
@@ -124,32 +143,43 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
               icon: const Icon(Icons.delete_outline_rounded),
               color: AppColors.error,
               onPressed: () async {
-                final confirm = await showDialog<bool>(
+                final confirm = await showAppConfirmationDialog(
                   context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Delete Task'),
-                    content: const Text('Are you sure you want to delete this task?'),
-                    actions: [
-                      TextButton(onPressed: () => ctx.pop(false), child: const Text('Cancel')),
-                      TextButton(
-                        onPressed: () => ctx.pop(true),
-                        style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                        child: const Text('Delete'),
-                      ),
-                    ],
-                  ),
+                  title: 'Delete Task',
+                  message: 'Are you sure you want to delete this task?',
+                  confirmLabel: 'Delete',
+                  icon: Icons.delete_outline_rounded,
+                  confirmColor: AppColors.error,
                 );
                 if (confirm == true && context.mounted) {
-                  ref.read(taskListProvider.notifier).delete(widget.taskId!);
-                  if (context.canPop()) {
-                    context.pop();
-                  } else {
-                    context.go('/tasks');
+                  try {
+                    await ref.read(taskListProvider.notifier).delete(widget.taskId!);
+                    if (context.mounted) {
+                      AppSnackBar.showSuccess(context, 'Task deleted');
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/tasks');
+                      }
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      AppSnackBar.showError(context, 'Failed to delete task: $e');
+                    }
                   }
                 }
               },
             ),
-          TextButton(onPressed: _save, child: Text('Save', style: AppTypography.labelMdPrimary())),
+          TextButton(
+            onPressed: _isSubmitting ? null : _save,
+            child: _isSubmitting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  )
+                : Text('Save', style: AppTypography.labelMdPrimary()),
+          ),
         ],
       ),
       body: Form(

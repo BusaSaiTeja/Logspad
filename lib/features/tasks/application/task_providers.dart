@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/features/tasks/data/firestore_task_repository.dart';
 import 'package:my_logs/features/tasks/domain/models/task_item.dart';
@@ -21,13 +22,13 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
   /// Optimistically adds a task instantly without waiting for extra network roundtrips.
   Future<void> add(TaskItem item) async {
     final current = state.valueOrNull ?? [];
-    final tempId = item.id.isEmpty ? DateTime.now().millisecondsSinceEpoch.toString() : item.id;
-    final optimisticItem = item.copyWith(id: tempId);
-    state = AsyncData([optimisticItem, ...current]);
+    final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
+    final optimisticItem = item.copyWith(id: id);
+    state = AsyncData([optimisticItem, ...current.where((t) => t.id != id)]);
 
     try {
-      final savedItem = await _repo.add(item);
-      final updatedList = (state.valueOrNull ?? []).map((t) => t.id == tempId ? savedItem : t).toList();
+      final savedItem = await _repo.add(optimisticItem);
+      final updatedList = (state.valueOrNull ?? []).map((t) => t.id == id ? savedItem : t).toList();
       state = AsyncData(updatedList);
     } catch (e) {
       state = AsyncData(current);
@@ -49,8 +50,12 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
     }
   }
 
+  final _togglingIds = <String>{};
+
   /// Optimistically toggles task completion instantly.
   Future<void> toggleComplete(String id) async {
+    if (_togglingIds.contains(id)) return;
+    _togglingIds.add(id);
     final current = state.valueOrNull ?? [];
     final previous = current;
     final now = DateTime.now();
@@ -70,6 +75,8 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
     } catch (e) {
       state = AsyncData(previous);
       rethrow;
+    } finally {
+      _togglingIds.remove(id);
     }
   }
 

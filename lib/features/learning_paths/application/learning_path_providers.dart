@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import 'package:my_logs/core/services/auth_service.dart';
 import 'package:my_logs/features/learning_paths/data/firestore_learning_path_repository.dart';
 import 'package:my_logs/features/learning_paths/domain/learning_path_repository.dart';
@@ -18,29 +19,75 @@ class LearningPathListNotifier extends AsyncNotifier<List<LearningPath>> {
   @override
   Future<List<LearningPath>> build() async => _repo.getAll();
 
+  /// Optimistically adds learning path immediately
   Future<void> add(LearningPath path) async {
-    final created = await _repo.add(path);
-    state = AsyncData([...?state.valueOrNull, created]);
+    final current = state.valueOrNull ?? [];
+    final id = path.id.isNotEmpty ? path.id : const Uuid().v4();
+    final optimisticPath = path.copyWith(id: id);
+    state = AsyncData([optimisticPath, ...current.where((p) => p.id != id)]);
+
+    try {
+      final created = await _repo.add(optimisticPath);
+      final updatedList = (state.valueOrNull ?? [])
+          .map((p) => p.id == id ? created : p)
+          .toList();
+      state = AsyncData(updatedList);
+    } catch (e) {
+      state = AsyncData(current);
+      rethrow;
+    }
   }
 
+  /// Optimistically updates learning path immediately
   Future<void> updateItem(LearningPath path) async {
-    final updated = await _repo.update(path);
-    state = AsyncData(
-      (state.valueOrNull ?? []).map((p) => p.id == updated.id ? updated : p).toList(),
-    );
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.map((p) => p.id == path.id ? path : p).toList());
+
+    try {
+      await _repo.update(path);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
+  /// Optimistically deletes learning path immediately
   Future<void> delete(String id) async {
-    await _repo.delete(id);
-    state = AsyncData((state.valueOrNull ?? []).where((p) => p.id != id).toList());
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    state = AsyncData(current.where((p) => p.id != id).toList());
+
+    try {
+      await _repo.delete(id);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
-  /// Toggle a single step's completion — progress % is re-computed automatically.
+  /// Optimistically toggles a single step's completion immediately (0ms lag)
   Future<void> toggleStep(String pathId, String stepId) async {
-    final updated = await _repo.toggleStep(pathId, stepId);
+    final current = state.valueOrNull ?? [];
+    final previous = current;
+    final path = current.where((p) => p.id == pathId).firstOrNull;
+    if (path == null) return;
+
+    final updatedSteps = path.steps.map((s) {
+      return s.id == stepId ? s.copyWith(isCompleted: !s.isCompleted) : s;
+    }).toList();
+
+    final optimisticPath = path.copyWith(steps: updatedSteps);
     state = AsyncData(
-      (state.valueOrNull ?? []).map((p) => p.id == updated.id ? updated : p).toList(),
+      current.map((p) => p.id == pathId ? optimisticPath : p).toList(),
     );
+
+    try {
+      await _repo.toggleStep(pathId, stepId);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 }
 

@@ -1,6 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:my_logs/core/domain/workspace_scoped.dart';
 import 'package:my_logs/core/services/auth_service.dart';
+import 'package:my_logs/core/utils/provider_reset_utils.dart';
 import 'package:my_logs/features/workspaces/data/firestore_workspace_repository.dart';
 import 'package:my_logs/features/workspaces/domain/models/workspace_item.dart';
 import 'package:my_logs/features/workspaces/domain/workspace_repository.dart';
@@ -60,41 +62,96 @@ class WorkspaceListNotifier extends AsyncNotifier<List<WorkspaceItem>> {
   }
 
   Future<void> updateWorkspace(WorkspaceItem item) async {
-    final updated = await _repo.update(item);
     final current = state.valueOrNull ?? [];
-    state = AsyncData(current.map((w) => w.id == updated.id ? updated : w).toList());
+    final previous = current;
+    state = AsyncData(current.map((w) => w.id == item.id ? item : w).toList());
+
+    try {
+      final updated = await _repo.update(item);
+      final list = (state.valueOrNull ?? []).map((w) => w.id == updated.id ? updated : w).toList();
+      state = AsyncData(list);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
+  final _togglingFeatureKeys = <String>{};
+
   Future<void> toggleFeature(String workspaceId, String featureKey) async {
-    final current = state.valueOrNull ?? [];
-    final ws = current.where((w) => w.id == workspaceId).firstOrNull;
-    if (ws == null) return;
+    final lockKey = '$workspaceId:$featureKey';
+    if (_togglingFeatureKeys.contains(lockKey)) return;
+    _togglingFeatureKeys.add(lockKey);
+    try {
+      final current = state.valueOrNull ?? [];
+      final ws = current.where((w) => w.id == workspaceId).firstOrNull;
+      if (ws == null) return;
 
-    final updatedFeatures = List<String>.from(ws.enabledFeatures);
-    if (updatedFeatures.contains(featureKey)) {
-      if (updatedFeatures.length <= 1) return; // Keep at least one feature
-      updatedFeatures.remove(featureKey);
-    } else {
-      updatedFeatures.add(featureKey);
+      final updatedFeatures = List<String>.from(ws.enabledFeatures);
+      if (updatedFeatures.contains(featureKey)) {
+        if (updatedFeatures.length <= 1) return; // Keep at least one feature
+        updatedFeatures.remove(featureKey);
+      } else {
+        updatedFeatures.add(featureKey);
+      }
+
+      final updatedWs = ws.copyWith(
+        enabledFeatures: updatedFeatures,
+        updatedAt: DateTime.now(),
+      );
+      await updateWorkspace(updatedWs);
+    } finally {
+      _togglingFeatureKeys.remove(lockKey);
     }
-
-    final updatedWs = ws.copyWith(
-      enabledFeatures: updatedFeatures,
-      updatedAt: DateTime.now(),
-    );
-    await updateWorkspace(updatedWs);
   }
 
   Future<void> deleteWorkspace(String id) async {
-    await _repo.delete(id);
     final current = state.valueOrNull ?? [];
+    final previous = current;
     final remaining = current.where((w) => w.id != id).toList();
     state = AsyncData(remaining);
 
-    // If active workspace was deleted, fall back to first workspace
+    // If active workspace was deleted, fall back to default or first workspace
     final activeId = ref.read(activeWorkspaceIdProvider).valueOrNull;
-    if (activeId == id && remaining.isNotEmpty) {
-      await ref.read(activeWorkspaceIdProvider.notifier).setActive(remaining.first.id);
+    final fallbackWs = remaining.where((w) => w.isDefault).firstOrNull ?? remaining.firstOrNull;
+    final fallbackId = fallbackWs?.id ?? '';
+
+    if (activeId == id && fallbackId.isNotEmpty) {
+      await ref.read(activeWorkspaceIdProvider.notifier).setActive(fallbackId);
+    }
+
+    try {
+      // Reassign all orphaned documents to the fallback workspace in Firestore
+      if (fallbackId.isNotEmpty) {
+        final authService = ref.read(authServiceProvider);
+        final uid = authService.currentUserId;
+        if (uid != null) {
+          final firestore = FirebaseFirestore.instance;
+          final userDoc = firestore.collection('users').doc(uid);
+          final collections = [
+            'notes',
+            'tasks',
+            'reminders',
+            'books',
+            'media',
+            'learning_paths',
+          ];
+          for (final col in collections) {
+            try {
+              final snap = await userDoc.collection(col).where('workspaceId', isEqualTo: id).get();
+              for (final doc in snap.docs) {
+                await doc.reference.update({'workspaceId': fallbackId});
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      await _repo.delete(id);
+      invalidateDomainEntityProviders(ref);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
     }
   }
 }

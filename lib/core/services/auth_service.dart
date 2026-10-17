@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -16,6 +17,10 @@ class AuthService {
   String? get currentUserId => _auth.currentUser?.uid;
   bool get isAnonymous => _auth.currentUser?.isAnonymous ?? false;
   bool get isAuthenticated => _auth.currentUser != null;
+  bool get isGoogleUser =>
+      _auth.currentUser?.providerData.any((p) => p.providerId == 'google.com') ?? false;
+  bool get isPasswordUser =>
+      _auth.currentUser?.providerData.any((p) => p.providerId == 'password') ?? false;
   String? get userEmail => _auth.currentUser?.email;
   String? get displayName => _auth.currentUser?.displayName;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -151,6 +156,104 @@ class AuthService {
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _auth.signOut();
+  }
+
+  /// Permanently deletes the current user account and purges user documents from Firestore.
+  /// Complies with Apple App Store Guideline 5.1.1(v) & Google Play User Data Policy.
+  /// Throws [FirebaseAuthException] with code 'requires-recent-login' if re-authentication is required.
+  Future<void> deleteAccount() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    final uid = user.uid;
+
+    // Defense-in-depth: Verify recent login BEFORE touching Firestore
+    final lastSignIn = user.metadata.lastSignInTime;
+    final isRecent = lastSignIn != null &&
+        DateTime.now().difference(lastSignIn) < const Duration(minutes: 5);
+    if (!user.isAnonymous && !isRecent) {
+      throw FirebaseAuthException(
+        code: 'requires-recent-login',
+        message:
+            'This sensitive operation requires recent authentication. Please re-authenticate before retrying.',
+      );
+    }
+
+    final firestore = FirebaseFirestore.instance;
+    final userDoc = firestore.collection('users').doc(uid);
+
+    final collections = [
+      'notes',
+      'tasks',
+      'reminders',
+      'books',
+      'media',
+      'learning_paths',
+      'workspaces',
+    ];
+
+    // Purge subcollections in Firestore in chunks of 400 to respect batch limits
+    for (final col in collections) {
+      try {
+        final snapshots = await userDoc.collection(col).get();
+        final docs = snapshots.docs;
+        for (var i = 0; i < docs.length; i += 400) {
+          final batch = firestore.batch();
+          final chunk = docs.skip(i).take(400);
+          for (final doc in chunk) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
+        }
+      } catch (_) {
+        // Continue best-effort cleanup of remaining collections
+      }
+    }
+
+    // Delete user profile document
+    try {
+      await userDoc.delete();
+    } catch (_) {}
+
+    // Delete auth account
+    await user.delete();
+
+    // Sign out from Google if applicable
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {}
+  }
+
+  /// Re-authenticates the current user using their password before sensitive operations like account deletion.
+  Future<void> reauthenticateWithPassword(String password) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw Exception('No active authenticated user with email found.');
+    }
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: password,
+    );
+    await user.reauthenticateWithCredential(credential);
+  }
+
+  /// Re-authenticates the current user using Google credentials before sensitive operations like account deletion.
+  Future<void> reauthenticateWithGoogle() async {
+    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) {
+      throw FirebaseAuthException(
+        code: 'canceled',
+        message: 'Google re-authentication was canceled.',
+      );
+    }
+    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    final OAuthCredential credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+    final user = _auth.currentUser;
+    if (user != null) {
+      await user.reauthenticateWithCredential(credential);
+    }
   }
 }
 
