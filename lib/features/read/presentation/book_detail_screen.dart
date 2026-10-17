@@ -151,11 +151,26 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                   ),
                 ),
               Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 8, right: 4),
+                child: CircleAvatar(
+                  backgroundColor: AppColors.surfaceContainerLowest.withValues(alpha: 0.85),
+                  child: IconButton(
+                    icon: const Icon(Icons.edit_outlined, color: AppColors.onSurface),
+                    tooltip: 'Edit Book',
+                    onPressed: () {
+                      _flushNotes(widget.id);
+                      context.push('/read/${widget.id}/edit');
+                    },
+                  ),
+                ),
+              ),
+              Padding(
                 padding: const EdgeInsets.all(8),
                 child: CircleAvatar(
                   backgroundColor: AppColors.surfaceContainerLowest.withValues(alpha: 0.85),
                   child: IconButton(
                     icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
+                    tooltip: 'Delete Book',
                     onPressed: () async {
                       final confirm = await showAppConfirmationDialog(
                         context: context,

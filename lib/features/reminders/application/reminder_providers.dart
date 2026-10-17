@@ -23,7 +23,7 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
 
   /// Optimistically adds reminder immediately
   Future<void> add(ReminderItem item) async {
-    final current = state.valueOrNull ?? [];
+    final current = await future;
     final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
     final optimisticItem = item.copyWith(id: id);
     state = AsyncData([optimisticItem, ...current.where((r) => r.id != id)]);
@@ -33,9 +33,11 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
       if (created.isEnabled) {
         await _scheduleNotification(created);
       }
-      final updatedList = (state.valueOrNull ?? [])
-          .map((r) => r.id == id ? created : r)
-          .toList();
+      final listNow = state.valueOrNull ?? current;
+      final contains = listNow.any((r) => r.id == id);
+      final updatedList = contains
+          ? listNow.map((r) => r.id == id ? created : r).toList()
+          : [created, ...listNow];
       state = AsyncData(updatedList);
     } catch (e) {
       state = AsyncData(current);
@@ -45,16 +47,20 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
 
   /// Optimistically updates reminder immediately
   Future<void> updateItem(ReminderItem item) async {
-    final current = state.valueOrNull ?? [];
-    final previous = current;
-    state = AsyncData(current.map((r) => r.id == item.id ? item : r).toList());
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    final contains = previous.any((r) => r.id == item.id);
+    final updated = contains
+        ? previous.map((r) => r.id == item.id ? item : r).toList()
+        : [item, ...previous];
+    state = AsyncData(updated);
 
     try {
-      final updated = await _repo.update(item);
-      await NotificationService.instance.cancelNotification(
-        NotificationService.idFromString(updated.id),
+      final updatedItem = await _repo.update(item);
+      await NotificationService.instance.cancelReminderNotifications(
+        NotificationService.idFromString(updatedItem.id),
       );
-      if (updated.isEnabled) await _scheduleNotification(updated);
+      if (updatedItem.isEnabled) await _scheduleNotification(updatedItem);
     } catch (e) {
       state = AsyncData(previous);
       rethrow;
@@ -63,12 +69,12 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
 
   /// Optimistically deletes reminder immediately
   Future<void> delete(String id) async {
-    final current = state.valueOrNull ?? [];
-    final previous = current;
-    state = AsyncData(current.where((r) => r.id != id).toList());
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    state = AsyncData(previous.where((r) => r.id != id).toList());
 
     try {
-      await NotificationService.instance.cancelNotification(
+      await NotificationService.instance.cancelReminderNotifications(
         NotificationService.idFromString(id),
       );
       await _repo.delete(id);
@@ -102,7 +108,7 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
       if (toggled.isEnabled) {
         await _scheduleNotification(toggled);
       } else {
-        await NotificationService.instance.cancelNotification(
+        await NotificationService.instance.cancelReminderNotifications(
           NotificationService.idFromString(toggled.id),
         );
       }
@@ -115,6 +121,21 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
   }
 
   Future<void> _scheduleNotification(ReminderItem item) async {
+    if (item.recurrence == ReminderRecurrence.custom) {
+      final days = ReminderWeekdayUtils.parseWeekdays(item.customDaysText).toList();
+      if (days.isNotEmpty) {
+        await NotificationService.instance.scheduleCustomWeekdaysNotification(
+          baseId: NotificationService.idFromString(item.id),
+          title: 'Logspad Reminder',
+          body: item.title,
+          scheduledTime: item.scheduledTime,
+          weekdays: days,
+          isVibrationAlarm: item.isVibrationAlarm,
+        );
+        return;
+      }
+    }
+
     DateTimeComponents? matchComponents;
     switch (item.recurrence) {
       case ReminderRecurrence.daily:
@@ -134,6 +155,7 @@ class ReminderListNotifier extends AsyncNotifier<List<ReminderItem>> {
       body: item.title,
       scheduledTime: item.scheduledTime,
       matchDateTimeComponents: matchComponents,
+      isVibrationAlarm: item.isVibrationAlarm,
     );
   }
 }
@@ -146,6 +168,28 @@ final reminderListProvider =
 // ── Derived Providers ─────────────────────────────────────────────────────────
 final todayRemindersProvider = Provider<List<ReminderItem>>((ref) {
   final reminders = ref.watch(reminderListProvider).valueOrNull ?? [];
-  return reminders.where((r) => r.isEnabled && AppDateUtils.isToday(r.scheduledTime)).toList()
-    ..sort((a, b) => a.scheduledTime.compareTo(b.scheduledTime));
+  final now = DateTime.now();
+  final list = reminders.where((r) {
+    if (!r.isEnabled) return false;
+    switch (r.recurrence) {
+      case ReminderRecurrence.none:
+        return AppDateUtils.isToday(r.scheduledTime);
+      case ReminderRecurrence.daily:
+        return true;
+      case ReminderRecurrence.weekly:
+        return r.scheduledTime.weekday == now.weekday;
+      case ReminderRecurrence.monthly:
+        return r.scheduledTime.day == now.day;
+      case ReminderRecurrence.custom:
+        final days = ReminderWeekdayUtils.parseWeekdays(r.customDaysText);
+        return days.contains(now.weekday);
+    }
+  }).toList();
+
+  list.sort((a, b) {
+    final aMinutes = a.scheduledTime.hour * 60 + a.scheduledTime.minute;
+    final bMinutes = b.scheduledTime.hour * 60 + b.scheduledTime.minute;
+    return aMinutes.compareTo(bMinutes);
+  });
+  return list;
 });

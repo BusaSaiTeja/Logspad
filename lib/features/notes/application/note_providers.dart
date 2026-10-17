@@ -54,14 +54,18 @@ class NoteListNotifier extends AsyncNotifier<List<NoteItem>> {
 
   /// Optimistically adds note to local state immediately
   Future<void> add(NoteItem item) async {
-    final current = state.valueOrNull ?? [];
+    final current = await future;
     final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
     final optimisticNote = item.copyWith(id: id);
     state = AsyncData([optimisticNote, ...current.where((n) => n.id != id)]);
 
     try {
       final savedItem = await _repo.add(optimisticNote);
-      final updatedList = (state.valueOrNull ?? []).map((n) => n.id == id ? savedItem : n).toList();
+      final listNow = state.valueOrNull ?? current;
+      final contains = listNow.any((n) => n.id == id);
+      final updatedList = contains
+          ? listNow.map((n) => n.id == id ? savedItem : n).toList()
+          : [savedItem, ...listNow];
       state = AsyncData(updatedList);
     } catch (e) {
       state = AsyncData(current);
@@ -71,9 +75,13 @@ class NoteListNotifier extends AsyncNotifier<List<NoteItem>> {
 
   /// Optimistically updates note in local state immediately
   Future<void> updateItem(NoteItem item) async {
-    final current = state.valueOrNull ?? [];
-    final previous = current;
-    state = AsyncData(current.map((n) => n.id == item.id ? item : n).toList());
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    final contains = previous.any((n) => n.id == item.id);
+    final updated = contains
+        ? previous.map((n) => n.id == item.id ? item : n).toList()
+        : [item, ...previous];
+    state = AsyncData(updated);
 
     try {
       await _repo.update(item);
@@ -85,9 +93,9 @@ class NoteListNotifier extends AsyncNotifier<List<NoteItem>> {
 
   /// Optimistically deletes note from local state immediately
   Future<void> delete(String id) async {
-    final current = state.valueOrNull ?? [];
-    final previous = current;
-    state = AsyncData(current.where((n) => n.id != id).toList());
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    state = AsyncData(previous.where((n) => n.id != id).toList());
 
     try {
       await _repo.delete(id);

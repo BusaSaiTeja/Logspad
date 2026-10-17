@@ -37,7 +37,7 @@ class MediaListNotifier extends AsyncNotifier<List<MediaItem>> {
 
   /// Optimistically adds media item immediately
   Future<void> add(MediaItem item) async {
-    final current = state.valueOrNull ?? [];
+    final current = state.valueOrNull ?? (await future);
     final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
     final optimisticItem = item.copyWith(id: id);
     state = AsyncData([optimisticItem, ...current.where((m) => m.id != id)]);
@@ -56,7 +56,7 @@ class MediaListNotifier extends AsyncNotifier<List<MediaItem>> {
 
   /// Optimistically updates media item immediately
   Future<void> updateItem(MediaItem item) async {
-    final current = state.valueOrNull ?? [];
+    final current = state.valueOrNull ?? (await future);
     final previous = current;
     state = AsyncData(current.map((m) => m.id == item.id ? item : m).toList());
 
@@ -70,7 +70,7 @@ class MediaListNotifier extends AsyncNotifier<List<MediaItem>> {
 
   /// Optimistically deletes media item immediately
   Future<void> delete(String id) async {
-    final current = state.valueOrNull ?? [];
+    final current = state.valueOrNull ?? (await future);
     final previous = current;
     state = AsyncData(current.where((m) => m.id != id).toList());
 

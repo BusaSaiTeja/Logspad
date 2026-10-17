@@ -26,6 +26,7 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
   DateTime _scheduledTime = DateTime.now().add(const Duration(hours: 1));
   ReminderRecurrence _recurrence = ReminderRecurrence.daily;
   bool _isEnabled = true;
+  bool _isVibrationAlarm = false;
   bool _isEdit = false;
   bool _isSubmitting = false;
 
@@ -46,6 +47,7 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
           _scheduledTime = r.scheduledTime;
           _recurrence = r.recurrence;
           _isEnabled = r.isEnabled;
+          _isVibrationAlarm = r.isVibrationAlarm;
         });
       });
     }
@@ -62,6 +64,19 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
 
   Future<void> _pickDateTime() async {
     final now = DateTime.now();
+
+    // For daily and custom repeating reminders, only the time of day matters
+    if (_recurrence == ReminderRecurrence.daily || _recurrence == ReminderRecurrence.custom) {
+      final time = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(_scheduledTime),
+      );
+      if (time == null || !mounted) return;
+      setState(() => _scheduledTime =
+          DateTime(now.year, now.month, now.day, time.hour, time.minute));
+      return;
+    }
+
     final earliestDate = _scheduledTime.isBefore(now)
         ? _scheduledTime.subtract(const Duration(days: 1))
         : now.subtract(const Duration(days: 1));
@@ -77,7 +92,7 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
       context: context,
       initialTime: TimeOfDay.fromDateTime(_scheduledTime),
     );
-    if (time == null) return;
+    if (time == null || !mounted) return;
     setState(() => _scheduledTime =
         DateTime(date.year, date.month, date.day, time.hour, time.minute));
   }
@@ -85,6 +100,13 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
   Future<void> _save() async {
     if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    if (_recurrence == ReminderRecurrence.custom) {
+      final days = ReminderWeekdayUtils.parseWeekdays(_customDaysCtrl.text);
+      if (days.isEmpty) {
+        AppSnackBar.showError(context, 'Please select at least one day to repeat');
+        return;
+      }
+    }
     setState(() => _isSubmitting = true);
     final now = DateTime.now();
     final router = GoRouter.of(context);
@@ -104,6 +126,7 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
               recurrence: _recurrence,
               customDaysText: customText,
               isEnabled: _isEnabled,
+              isVibrationAlarm: _isVibrationAlarm,
               updatedAt: now,
             ));
       } else {
@@ -114,6 +137,7 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
               recurrence: _recurrence,
               customDaysText: customText,
               isEnabled: _isEnabled,
+              isVibrationAlarm: _isVibrationAlarm,
               createdAt: now,
               updatedAt: now,
             ));
@@ -208,6 +232,8 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
             const SizedBox(height: 6),
             ReminderTimePickerTile(
               scheduledTime: _scheduledTime,
+              recurrence: _recurrence,
+              customDaysText: _customDaysCtrl.text,
               onTap: _pickDateTime,
             ),
             const SizedBox(height: AppSpacing.stackGap),
@@ -217,6 +243,7 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
               selectedRecurrence: _recurrence,
               onRecurrenceSelected: (r) => setState(() => _recurrence = r),
               customTextController: _customDaysCtrl,
+              onCustomTextChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: AppSpacing.stackGap),
             Row(
@@ -229,6 +256,44 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
                   activeThumbColor: AppColors.primary,
                 ),
               ],
+            ),
+            const SizedBox(height: AppSpacing.stackGap),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+                boxShadow: AppColors.cardShadow,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.vibration_rounded,
+                    color: _isVibrationAlarm ? AppColors.primary : AppColors.onSurfaceVariant,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Alarm-style vibration', style: AppTypography.bodyLg),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Continuous alarm vibration with a "Stop Reminder" button in the notification',
+                          style: AppTypography.labelMdVariant(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: _isVibrationAlarm,
+                    onChanged: (v) => setState(() => _isVibrationAlarm = v),
+                    activeThumbColor: AppColors.primary,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 32),
           ],

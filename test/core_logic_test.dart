@@ -163,5 +163,23 @@ void main() {
       expect(ReminderRecurrence.monthly.label, 'Monthly');
       expect(ReminderRecurrence.custom.label, 'Custom');
     });
+
+    test('ReminderWeekdayUtils parses and formats standard alarm repeat patterns', () {
+      expect(ReminderWeekdayUtils.parseWeekdays('Mon, Wed, Fri'), {1, 3, 5});
+      expect(ReminderWeekdayUtils.formatWeekdays({1, 3, 5}), 'Mon, Wed, Fri');
+
+      expect(ReminderWeekdayUtils.parseWeekdays('Weekdays'), {1, 2, 3, 4, 5});
+      expect(ReminderWeekdayUtils.formatWeekdays({1, 2, 3, 4, 5}), 'Weekdays');
+
+      expect(ReminderWeekdayUtils.parseWeekdays('Weekends'), {6, 7});
+      expect(ReminderWeekdayUtils.formatWeekdays({6, 7}), 'Weekends');
+
+      expect(ReminderWeekdayUtils.parseWeekdays('Every day'), {1, 2, 3, 4, 5, 6, 7});
+      expect(ReminderWeekdayUtils.formatWeekdays({1, 2, 3, 4, 5, 6, 7}), 'Every day');
+
+      expect(ReminderWeekdayUtils.parseWeekdays(null), <int>{});
+      expect(ReminderWeekdayUtils.parseWeekdays(''), <int>{});
+      expect(ReminderWeekdayUtils.formatWeekdays({}), '');
+    });
   });
 }

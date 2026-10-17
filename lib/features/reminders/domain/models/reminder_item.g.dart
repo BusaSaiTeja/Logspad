@@ -20,6 +20,7 @@ _$ReminderItemImpl _$$ReminderItemImplFromJson(Map<String, dynamic> json) =>
           ReminderRecurrence.none,
       customDaysText: json['customDaysText'] as String?,
       isEnabled: json['isEnabled'] as bool? ?? true,
+      isVibrationAlarm: json['isVibrationAlarm'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -33,6 +34,7 @@ Map<String, dynamic> _$$ReminderItemImplToJson(_$ReminderItemImpl instance) =>
       'recurrence': _$ReminderRecurrenceEnumMap[instance.recurrence]!,
       'customDaysText': instance.customDaysText,
       'isEnabled': instance.isEnabled,
+      'isVibrationAlarm': instance.isVibrationAlarm,
       'createdAt': instance.createdAt.toIso8601String(),
       'updatedAt': instance.updatedAt.toIso8601String(),
     };

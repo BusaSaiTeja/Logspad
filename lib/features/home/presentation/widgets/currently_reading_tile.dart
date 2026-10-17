@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
-import 'package:my_logs/core/widgets/progress_bar.dart';
+import 'package:my_logs/core/widgets/rating_stars.dart';
 import 'package:my_logs/features/read/domain/models/book_item.dart';
 
 class CurrentlyReadingTile extends StatelessWidget {
@@ -12,10 +12,6 @@ class CurrentlyReadingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = book.totalPages != null && book.totalPages! > 0
-        ? book.currentPage / book.totalPages!
-        : 0.0;
-
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -28,7 +24,7 @@ class CurrentlyReadingTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            if (book.coverUrl != null)
+            if (book.coverUrl != null && book.coverUrl!.isNotEmpty)
               ClipRRect(
                 borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
                 child: SizedBox(
@@ -45,7 +41,10 @@ class CurrentlyReadingTile extends StatelessWidget {
               Container(
                 width: 48,
                 height: 72,
-                color: AppColors.surfaceContainerHigh,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                ),
                 child: const Icon(Icons.book_outlined, size: 24, color: AppColors.outline),
               ),
             const SizedBox(width: AppSpacing.gutter),
@@ -59,13 +58,35 @@ class CurrentlyReadingTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 2),
                   Text(book.author, style: AppTypography.bodyMdOutline()),
-                  const SizedBox(height: 8),
-                  AppProgressBar(progress: progress),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${book.currentPage} / ${book.totalPages ?? '?'} pages',
-                    style: AppTypography.labelMdOutline(),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      RatingStars(
+                        rating: book.rating,
+                        starSize: 14,
+                        onRatingChanged: null,
+                      ),
+                      if (book.genres.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryFixed.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+                          ),
+                          child: Text(
+                            book.genres.first,
+                            style: AppTypography.labelMd.copyWith(
+                              fontSize: 10,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),

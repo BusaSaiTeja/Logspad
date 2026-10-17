@@ -2,21 +2,38 @@ import 'package:flutter/material.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/date_utils.dart';
+import 'package:my_logs/features/reminders/domain/models/reminder_item.dart';
 
 class ReminderTimePickerTile extends StatelessWidget {
   const ReminderTimePickerTile({
     super.key,
     required this.scheduledTime,
+    required this.recurrence,
+    this.customDaysText,
     required this.onTap,
   });
 
   final DateTime scheduledTime;
+  final ReminderRecurrence recurrence;
+  final String? customDaysText;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final formatted = '${scheduledTime.day}/${scheduledTime.month}/${scheduledTime.year} '
-        '${scheduledTime.hour.toString().padLeft(2, '0')}:${scheduledTime.minute.toString().padLeft(2, '0')}';
+    final timeStr = AppDateUtils.formatTime(scheduledTime);
+    final String label = switch (recurrence) {
+      ReminderRecurrence.none =>
+        '${scheduledTime.day}/${scheduledTime.month}/${scheduledTime.year} at $timeStr (Once)',
+      ReminderRecurrence.daily => 'Every day at $timeStr',
+      ReminderRecurrence.weekly =>
+        'Every ${AppDateUtils.weekdayName(scheduledTime.weekday)} at $timeStr',
+      ReminderRecurrence.monthly =>
+        'Day ${scheduledTime.day} of every month at $timeStr',
+      ReminderRecurrence.custom => customDaysText?.isNotEmpty == true
+          ? '$customDaysText at $timeStr'
+          : 'Custom at $timeStr',
+    };
 
     return GestureDetector(
       onTap: onTap,
@@ -30,7 +47,10 @@ class ReminderTimePickerTile extends StatelessWidget {
           children: [
             const Icon(Icons.alarm_rounded, color: AppColors.primary, size: 20),
             const SizedBox(width: 12),
-            Text(formatted, style: AppTypography.bodyLg),
+            Expanded(
+              child: Text(label, style: AppTypography.bodyLg),
+            ),
+            const Icon(Icons.edit_outlined, color: AppColors.outline, size: 18),
           ],
         ),
       ),

@@ -54,19 +54,24 @@ class TmdbService {
     10765: 'Sci-Fi & Fantasy',
   };
 
+  static bool _isTmdbBlocked = false;
+
   /// Searches movies with automatic multi-tier fallbacks: TMDB -> OMDB -> TVMaze.
   Future<List<TmdbSearchResult>> searchMovies(String title) async {
     final cleanQuery = title.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (cleanQuery.isEmpty) return [];
 
-    // Tier 1: Try TMDB Movies (High-res posters, official synopsis & genres)
-    try {
-      final tmdbResults = await _searchTmdbMovies(cleanQuery);
-      if (tmdbResults.isNotEmpty) {
-        return tmdbResults;
+    // Tier 1: Try TMDB Movies if not previously blocked by regional ISP
+    if (!_isTmdbBlocked) {
+      try {
+        final tmdbResults = await _searchTmdbMovies(cleanQuery);
+        if (tmdbResults.isNotEmpty) {
+          return tmdbResults;
+        }
+      } catch (e) {
+        _isTmdbBlocked = true;
+        if (kDebugMode) print('[TMDB Movie] Blocked or timed out, caching OMDB bypass: $e');
       }
-    } catch (e) {
-      if (kDebugMode) print('[TMDB Movie] Error: $e');
     }
 
     // Tier 2: Try OMDB (Universal CDN, IMDb IDs, fast fallback)
@@ -94,92 +99,103 @@ class TmdbService {
 
   /// Searches OMDB for movies & series.
   Future<List<TmdbSearchResult>> _searchOmdb(String cleanQuery) async {
-    if (_omdbApiKey.isEmpty) return [];
+    final candidateKeys = <String>[
+      if (_omdbApiKey.isNotEmpty) _omdbApiKey,
+      'trilogy',
+      'b7a547f2',
+    ];
 
-    final uri = Uri.https('www.omdbapi.com', '', {
-      'apikey': _omdbApiKey,
-      's': cleanQuery,
-    });
-
-    final response = await _client.get(uri).timeout(const Duration(seconds: 6));
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (data['Response'] == 'True') {
-        final searchList = (data['Search'] as List<dynamic>?) ?? [];
-        final qLower = cleanQuery.toLowerCase();
-
-        // Sort startsWith first
-        searchList.sort((a, b) {
-          final tA = (a['Title'] as String? ?? '').toLowerCase();
-          final tB = (b['Title'] as String? ?? '').toLowerCase();
-          final sA = tA.startsWith(qLower);
-          final sB = tB.startsWith(qLower);
-          if (sA && !sB) return -1;
-          if (!sA && sB) return 1;
-          return 0;
+    for (final key in candidateKeys.toSet()) {
+      try {
+        final uri = Uri.https('www.omdbapi.com', '', {
+          'apikey': key,
+          's': cleanQuery,
         });
 
-        // Enrich the top results with detail lookups in parallel
-        final results = await Future.wait(
-          searchList.take(6).map((item) async {
-            final map = item as Map<String, dynamic>;
-            final imdbId = map['imdbID'] as String?;
-            final poster = map['Poster'] as String?;
-            final posterUrl = (poster != null && poster != 'N/A') ? poster : null;
-            final yearStr = map['Year'] as String?;
-            int? year;
-            if (yearStr != null && yearStr.length >= 4) {
-              year = int.tryParse(yearStr.substring(0, 4));
-            }
+        final response = await _client.get(uri).timeout(const Duration(seconds: 6));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          if (data['Response'] == 'True') {
+            final searchList = (data['Search'] as List<dynamic>?) ?? [];
+            if (searchList.isEmpty) continue;
+            final qLower = cleanQuery.toLowerCase();
 
-            String? synopsis;
-            List<String> genres = [];
-            if (map['Type'] == 'movie' && map.containsKey('Genre')) {
-              genres = (map['Genre'] as String)
-                  .split(',')
-                  .map((g) => g.trim())
-                  .where((g) => g.isNotEmpty && g != 'N/A')
-                  .toList();
-            }
+            // Sort startsWith first
+            searchList.sort((a, b) {
+              final tA = (a['Title'] as String? ?? '').toLowerCase();
+              final tB = (b['Title'] as String? ?? '').toLowerCase();
+              final sA = tA.startsWith(qLower);
+              final sB = tB.startsWith(qLower);
+              if (sA && !sB) return -1;
+              if (!sA && sB) return 1;
+              return 0;
+            });
 
-            // Quick detail fetch for top 3 to get full synopsis & genre
-            if (imdbId != null && searchList.indexOf(item) < 3) {
-              try {
-                final detailUri = Uri.https('www.omdbapi.com', '', {
-                  'apikey': _omdbApiKey,
-                  'i': imdbId,
-                  'plot': 'short',
-                });
-                final detailRes =
-                    await _client.get(detailUri).timeout(const Duration(seconds: 3));
-                if (detailRes.statusCode == 200) {
-                  final dData = jsonDecode(detailRes.body) as Map<String, dynamic>;
-                  if (dData['Plot'] != null && dData['Plot'] != 'N/A') {
-                    synopsis = dData['Plot'] as String;
-                  }
-                  if (dData['Genre'] != null && dData['Genre'] != 'N/A') {
-                    genres = (dData['Genre'] as String)
-                        .split(',')
-                        .map((g) => g.trim())
-                        .where((g) => g.isNotEmpty)
-                        .toList();
-                  }
+            // Enrich the top results with detail lookups in parallel
+            final results = await Future.wait(
+              searchList.take(6).map((item) async {
+                final map = item as Map<String, dynamic>;
+                final imdbId = map['imdbID'] as String?;
+                final poster = map['Poster'] as String?;
+                final posterUrl = (poster != null && poster != 'N/A') ? poster : null;
+                final yearStr = map['Year'] as String?;
+                int? year;
+                if (yearStr != null && yearStr.length >= 4) {
+                  year = int.tryParse(yearStr.substring(0, 4));
                 }
-              } catch (_) {}
-            }
 
-            return TmdbSearchResult(
-              title: (map['Title'] as String?) ?? cleanQuery,
-              year: year,
-              posterUrl: posterUrl,
-              synopsis: synopsis,
-              genres: genres,
-              language: 'ENGLISH',
+                String? synopsis;
+                List<String> genres = [];
+                if (map['Type'] == 'movie' && map.containsKey('Genre')) {
+                  genres = (map['Genre'] as String)
+                      .split(',')
+                      .map((g) => g.trim())
+                      .where((g) => g.isNotEmpty && g != 'N/A')
+                      .toList();
+                }
+
+                // Quick detail fetch for top 3 to get full synopsis & genre
+                if (imdbId != null && searchList.indexOf(item) < 3) {
+                  try {
+                    final detailUri = Uri.https('www.omdbapi.com', '', {
+                      'apikey': key,
+                      'i': imdbId,
+                      'plot': 'short',
+                    });
+                    final detailRes =
+                        await _client.get(detailUri).timeout(const Duration(seconds: 3));
+                    if (detailRes.statusCode == 200) {
+                      final dData = jsonDecode(detailRes.body) as Map<String, dynamic>;
+                      if (dData['Plot'] != null && dData['Plot'] != 'N/A') {
+                        synopsis = dData['Plot'] as String;
+                      }
+                      if (dData['Genre'] != null && dData['Genre'] != 'N/A') {
+                        genres = (dData['Genre'] as String)
+                            .split(',')
+                            .map((g) => g.trim())
+                            .where((g) => g.isNotEmpty)
+                            .toList();
+                      }
+                    }
+                  } catch (_) {}
+                }
+
+                return TmdbSearchResult(
+                  title: (map['Title'] as String?) ?? cleanQuery,
+                  year: year,
+                  posterUrl: posterUrl,
+                  synopsis: synopsis,
+                  genres: genres,
+                  language: 'ENGLISH',
+                );
+              }),
             );
-          }),
-        );
 
-        return results;
+            return results;
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) print('[OMDB] Key $key failed: $e');
       }
     }
     return [];
@@ -201,7 +217,7 @@ class TmdbService {
         'User-Agent': 'LogspadApp/1.0 (Flutter)',
         'Accept': 'application/json',
       },
-    ).timeout(const Duration(seconds: 6));
+    ).timeout(const Duration(seconds: 2));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -248,13 +264,16 @@ class TmdbService {
     if (cleanQuery.isEmpty) return [];
 
     // Tier 1: TMDB TV Search
-    try {
-      final tmdbTvResults = await _searchTmdbTv(cleanQuery);
-      if (tmdbTvResults.isNotEmpty) {
-        return tmdbTvResults;
+    if (!_isTmdbBlocked) {
+      try {
+        final tmdbTvResults = await _searchTmdbTv(cleanQuery);
+        if (tmdbTvResults.isNotEmpty) {
+          return tmdbTvResults;
+        }
+      } catch (e) {
+        _isTmdbBlocked = true;
+        if (kDebugMode) print('[TMDB TV] Error: $e');
       }
-    } catch (e) {
-      if (kDebugMode) print('[TMDB TV] Error: $e');
     }
 
     // Tier 2: OMDB
@@ -292,7 +311,7 @@ class TmdbService {
         'User-Agent': 'LogspadApp/1.0 (Flutter)',
         'Accept': 'application/json',
       },
-    ).timeout(const Duration(seconds: 6));
+    ).timeout(const Duration(seconds: 2));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;

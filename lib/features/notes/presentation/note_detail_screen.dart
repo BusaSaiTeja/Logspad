@@ -29,6 +29,8 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   Timer? _debounceTimer;
   bool _isSaving = false;
   bool _savePending = false;
+  bool _isDeleted = false;
+  bool _initialized = false;
 
   @override
   void initState() {
@@ -37,32 +39,29 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     _contentCtrl = TextEditingController();
     _currentNoteId = widget.noteId;
 
-    if (!widget.isNew && widget.noteId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final note = ref.read(noteByIdProvider(widget.noteId!));
-        if (note == null) return;
+    if (widget.isNew || widget.noteId == null) {
+      _initialized = true;
+    } else {
+      final note = ref.read(noteByIdProvider(widget.noteId!));
+      if (note != null) {
         _titleCtrl.text = note.title;
         _contentCtrl.text = note.content;
-        setState(() {
-          _selectedTags.clear();
-          _selectedTags.addAll(note.tags);
-        });
-      });
+        _selectedTags.addAll(note.tags);
+        _initialized = true;
+      }
     }
   }
 
   @override
   void dispose() {
-    if (_debounceTimer?.isActive ?? false) {
-      _debounceTimer?.cancel();
-      _autoSave();
-    }
+    _debounceTimer?.cancel();
     _titleCtrl.dispose();
     _contentCtrl.dispose();
     super.dispose();
   }
 
   void _onTextChanged() {
+    if (_isDeleted) return;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 600), () {
       _autoSave();
@@ -70,6 +69,8 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   }
 
   Future<void> _autoSave() async {
+    if (_isDeleted) return;
+
     final title = _titleCtrl.text.trim();
     final content = _contentCtrl.text;
 
@@ -89,18 +90,24 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     try {
       if (_currentNoteId != null) {
         final existing = ref.read(noteByIdProvider(_currentNoteId!));
-        if (existing != null) {
-          await ref.read(noteListProvider.notifier).updateItem(existing.copyWith(
-                title: effectiveTitle,
-                content: content,
-                tags: List.from(_selectedTags),
-                updatedAt: now,
-              ));
-        }
+        final activeWorkspaceId = existing?.workspaceId.isNotEmpty == true
+            ? existing!.workspaceId
+            : (ref.read(activeWorkspaceIdProvider).valueOrNull ?? '');
+        final updatedNote = NoteItem(
+          id: _currentNoteId!,
+          workspaceId: activeWorkspaceId,
+          title: effectiveTitle,
+          content: content,
+          tags: List.from(_selectedTags),
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        );
+        await ref.read(noteListProvider.notifier).updateItem(updatedNote);
       } else {
         // Synchronously allocate unique ID so concurrent saves never re-enter create branch
         final generatedId = const Uuid().v4();
         _currentNoteId = generatedId;
+        if (mounted) setState(() {});
         final activeWorkspaceId = ref.read(activeWorkspaceIdProvider).valueOrNull ?? '';
         final newNote = NoteItem(
           id: generatedId,
@@ -117,8 +124,52 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
       debugPrint('Note autoSave error: $e\n$st');
     } finally {
       _isSaving = false;
-      if (_savePending && mounted) {
+      if (_savePending && mounted && !_isDeleted) {
         _autoSave();
+      }
+    }
+  }
+
+  Future<void> _deleteNote() async {
+    final confirm = await showAppConfirmationDialog(
+      context: context,
+      title: 'Delete Note',
+      message: 'Are you sure you want to delete this note?',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+      icon: Icons.delete_outline_rounded,
+    );
+
+    if (confirm != true || !mounted) return;
+
+    _isDeleted = true;
+    _debounceTimer?.cancel();
+
+    final idToDelete = _currentNoteId;
+    if (idToDelete != null && idToDelete.isNotEmpty) {
+      try {
+        await ref.read(noteListProvider.notifier).delete(idToDelete);
+        if (mounted) {
+          AppSnackBar.showSuccess(context, 'Note deleted');
+        }
+      } catch (e) {
+        _isDeleted = false;
+        if (mounted) {
+          AppSnackBar.showError(context, 'Failed to delete note: $e');
+        }
+        return;
+      }
+    } else {
+      if (mounted) {
+        AppSnackBar.showSuccess(context, 'Note discarded');
+      }
+    }
+
+    if (mounted) {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/notes');
       }
     }
   }
@@ -210,12 +261,23 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_initialized && widget.noteId != null) {
+      final note = ref.watch(noteByIdProvider(widget.noteId!));
+      if (note != null) {
+        _titleCtrl.text = note.title;
+        _contentCtrl.text = note.content;
+        _selectedTags.clear();
+        _selectedTags.addAll(note.tags);
+        _initialized = true;
+      }
+    }
+
     final allCategories = ref.watch(noteCategoriesProvider).where((c) => c != 'All').toList();
 
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) {
+        if (didPop && !_isDeleted) {
           _debounceTimer?.cancel();
           _autoSave();
         }
@@ -227,13 +289,17 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
             color: AppColors.onSurfaceVariant,
-            onPressed: () {
+            onPressed: () async {
               _debounceTimer?.cancel();
-              _autoSave();
               if (context.canPop()) {
                 context.pop();
               } else {
-                context.go('/notes');
+                if (!_isDeleted) {
+                  await _autoSave();
+                }
+                if (context.mounted) {
+                  context.go('/notes');
+                }
               }
             },
           ),
@@ -241,39 +307,12 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
               style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
           centerTitle: false,
           actions: [
-            if (_currentNoteId != null)
+            if (_currentNoteId != null || _titleCtrl.text.isNotEmpty || _contentCtrl.text.isNotEmpty)
               IconButton(
                 icon: const Icon(Icons.delete_outline_rounded),
                 color: AppColors.error,
-                onPressed: () async {
-                  final confirm = await showAppConfirmationDialog(
-                    context: context,
-                    title: 'Delete Note',
-                    message: 'Are you sure you want to delete this note?',
-                    confirmLabel: 'Delete',
-                    icon: Icons.delete_outline_rounded,
-                    confirmColor: AppColors.error,
-                  );
-                  if (confirm == true && context.mounted) {
-                    final idToDelete = _currentNoteId!;
-                    _currentNoteId = null;
-                    try {
-                      await ref.read(noteListProvider.notifier).delete(idToDelete);
-                      if (context.mounted) {
-                        AppSnackBar.showSuccess(context, 'Note deleted');
-                        if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go('/notes');
-                        }
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        AppSnackBar.showError(context, 'Failed to delete note: $e');
-                      }
-                    }
-                  }
-                },
+                tooltip: 'Delete Note',
+                onPressed: _deleteNote,
               ),
           ],
         ),

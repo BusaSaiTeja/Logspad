@@ -157,6 +157,30 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                   ),
                 ),
               Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 8, right: 4),
+                child: CircleAvatar(
+                  backgroundColor: AppColors.surfaceContainerLowest.withValues(
+                    alpha: 0.85,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      color: AppColors.onSurface,
+                    ),
+                    tooltip: 'Edit Log',
+                    onPressed: () {
+                      _flushNotes(widget.id);
+                      final route = switch (item.category) {
+                        MediaCategory.movie => '/watch/movies/${item.id}/edit',
+                        MediaCategory.animatedMovie => '/watch/animated/${item.id}/edit',
+                        MediaCategory.anime => '/watch/anime/${item.id}/edit',
+                      };
+                      context.push(route);
+                    },
+                  ),
+                ),
+              ),
+              Padding(
                 padding: const EdgeInsets.all(8),
                 child: CircleAvatar(
                   backgroundColor: AppColors.surfaceContainerLowest.withValues(
@@ -167,6 +191,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                       Icons.delete_outline_rounded,
                       color: AppColors.error,
                     ),
+                    tooltip: 'Delete Log',
                     onPressed: () async {
                       final router = GoRouter.of(context);
                       final confirm = await showAppConfirmationDialog(

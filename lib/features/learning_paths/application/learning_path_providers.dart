@@ -21,7 +21,7 @@ class LearningPathListNotifier extends AsyncNotifier<List<LearningPath>> {
 
   /// Optimistically adds learning path immediately
   Future<void> add(LearningPath path) async {
-    final current = state.valueOrNull ?? [];
+    final current = state.valueOrNull ?? (await future);
     final id = path.id.isNotEmpty ? path.id : const Uuid().v4();
     final optimisticPath = path.copyWith(id: id);
     state = AsyncData([optimisticPath, ...current.where((p) => p.id != id)]);
@@ -40,7 +40,7 @@ class LearningPathListNotifier extends AsyncNotifier<List<LearningPath>> {
 
   /// Optimistically updates learning path immediately
   Future<void> updateItem(LearningPath path) async {
-    final current = state.valueOrNull ?? [];
+    final current = state.valueOrNull ?? (await future);
     final previous = current;
     state = AsyncData(current.map((p) => p.id == path.id ? path : p).toList());
 
@@ -54,7 +54,7 @@ class LearningPathListNotifier extends AsyncNotifier<List<LearningPath>> {
 
   /// Optimistically deletes learning path immediately
   Future<void> delete(String id) async {
-    final current = state.valueOrNull ?? [];
+    final current = state.valueOrNull ?? (await future);
     final previous = current;
     state = AsyncData(current.where((p) => p.id != id).toList());
 

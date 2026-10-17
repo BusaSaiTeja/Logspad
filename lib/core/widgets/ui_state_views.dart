@@ -140,66 +140,76 @@ class SearchEmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 48.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
-              ),
-              child: const Center(
-                child: Icon(Icons.search_off_rounded, size: 28, color: Color(0xFF64748B)),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'No matches found',
-              style: AppTypography.headlineMd.copyWith(
-                color: AppColors.obsidian,
-                fontWeight: FontWeight.w700,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 280),
-              child: Text(
-                query.isNotEmpty
-                    ? 'No items matched "$query". Try searching for another keyword.'
-                    : 'No items match the currently selected filter.',
-                style: AppTypography.bodyMd.copyWith(
-                  color: AppColors.onSurfaceVariant,
-                  height: 1.4,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.search_off_rounded, size: 28, color: Color(0xFF64748B)),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'No matches found',
+                      style: AppTypography.headlineMd.copyWith(
+                        color: AppColors.obsidian,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 280),
+                      child: Text(
+                        query.isNotEmpty
+                            ? 'No items matched "$query". Try searching for another keyword.'
+                            : 'No items match the currently selected filter.',
+                        style: AppTypography.bodyMd.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    if (onClear != null) ...[
+                      const SizedBox(height: 20),
+                      OutlinedButton.icon(
+                        onPressed: onClear,
+                        icon: const Icon(Icons.close_rounded, size: 16),
+                        label: const Text('Clear Filter / Search'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                textAlign: TextAlign.center,
               ),
             ),
-            if (onClear != null) ...[
-              const SizedBox(height: 20),
-              OutlinedButton.icon(
-                onPressed: onClear,
-                icon: const Icon(Icons.close_rounded, size: 16),
-                label: const Text('Clear Filter / Search'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primary),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -220,65 +230,75 @@ class ErrorStateView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 48.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEE2E2),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFFCA5A5), width: 1),
-              ),
-              child: const Center(
-                child: Icon(Icons.cloud_off_rounded, size: 28, color: Color(0xFFDC2626)),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Unable to Load Data',
-              style: AppTypography.headlineMd.copyWith(
-                color: AppColors.obsidian,
-                fontWeight: FontWeight.w700,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 290),
-              child: Text(
-                message.contains('SocketException') || message.contains('network')
-                    ? 'Check your internet connection and try again.'
-                    : 'Something went wrong while syncing. Please tap below to retry.',
-                style: AppTypography.bodyMd.copyWith(
-                  color: AppColors.onSurfaceVariant,
-                  height: 1.4,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEE2E2),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFFFCA5A5), width: 1),
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.cloud_off_rounded, size: 28, color: Color(0xFFDC2626)),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Unable to Load Data',
+                      style: AppTypography.headlineMd.copyWith(
+                        color: AppColors.obsidian,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 290),
+                      child: Text(
+                        message.contains('SocketException') || message.contains('network')
+                            ? 'Check your internet connection and try again.'
+                            : 'Something went wrong while syncing. Please tap below to retry.',
+                        style: AppTypography.bodyMd.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    ElevatedButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Try Again'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                      ),
+                    ),
+                  ],
                 ),
-                textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 22),
-            ElevatedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Try Again'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

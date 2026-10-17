@@ -21,14 +21,18 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
 
   /// Optimistically adds a task instantly without waiting for extra network roundtrips.
   Future<void> add(TaskItem item) async {
-    final current = state.valueOrNull ?? [];
+    final current = await future;
     final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
     final optimisticItem = item.copyWith(id: id);
     state = AsyncData([optimisticItem, ...current.where((t) => t.id != id)]);
 
     try {
       final savedItem = await _repo.add(optimisticItem);
-      final updatedList = (state.valueOrNull ?? []).map((t) => t.id == id ? savedItem : t).toList();
+      final listNow = state.valueOrNull ?? current;
+      final contains = listNow.any((t) => t.id == id);
+      final updatedList = contains
+          ? listNow.map((t) => t.id == id ? savedItem : t).toList()
+          : [savedItem, ...listNow];
       state = AsyncData(updatedList);
     } catch (e) {
       state = AsyncData(current);
@@ -38,9 +42,13 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
 
   /// Optimistically updates a task locally and syncs to database.
   Future<void> updateItem(TaskItem item) async {
-    final current = state.valueOrNull ?? [];
-    final previous = current;
-    state = AsyncData(current.map((t) => t.id == item.id ? item : t).toList());
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    final contains = previous.any((t) => t.id == item.id);
+    final updated = contains
+        ? previous.map((t) => t.id == item.id ? item : t).toList()
+        : [item, ...previous];
+    state = AsyncData(updated);
 
     try {
       await _repo.update(item);
@@ -56,11 +64,11 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
   Future<void> toggleComplete(String id) async {
     if (_togglingIds.contains(id)) return;
     _togglingIds.add(id);
-    final current = state.valueOrNull ?? [];
-    final previous = current;
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
     final now = DateTime.now();
 
-    state = AsyncData(current.map((t) {
+    state = AsyncData(previous.map((t) {
       if (t.id == id) {
         return t.copyWith(
           isCompleted: !t.isCompleted,
@@ -82,9 +90,9 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
 
   /// Optimistically deletes a task instantly.
   Future<void> delete(String id) async {
-    final current = state.valueOrNull ?? [];
-    final previous = current;
-    state = AsyncData(current.where((t) => t.id != id).toList());
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    state = AsyncData(previous.where((t) => t.id != id).toList());
 
     try {
       await _repo.delete(id);

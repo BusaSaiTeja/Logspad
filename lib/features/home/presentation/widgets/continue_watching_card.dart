@@ -52,11 +52,28 @@ class ContinueWatchingCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            if (item.totalEpisodes != null)
-              Text(
-                'Ep ${item.episodesWatched}/${item.totalEpisodes}',
-                style: AppTypography.labelMdOutline(),
-              ),
+            Row(
+              children: [
+                if (item.year != null) ...[
+                  Text(
+                    '${item.year}',
+                    style: AppTypography.labelMdOutline().copyWith(fontSize: 11),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                if (item.rating != null) ...[
+                  const Icon(Icons.star_rounded, size: 12, color: AppColors.starAmber),
+                  const SizedBox(width: 2),
+                  Text(
+                    item.rating!.toStringAsFixed(1),
+                    style: AppTypography.labelMd.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
       ),

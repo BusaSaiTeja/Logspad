@@ -118,10 +118,7 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
           // ── Swipeable PageView List ───────────────────────────────────────
           Expanded(
             child: mediaListAsync.when(
-              loading: () => const ShimmerSkeletonList(
-                itemCount: 5,
-                cardHeight: 88,
-              ),
+              loading: () => _buildGridShimmer(),
               error: (err, _) => ErrorStateView(
                 message: err.toString(),
                 onRetry: () => ref.refresh(mediaListProvider),
@@ -159,17 +156,36 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
                       );
                     }
 
-                    return ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
-                      itemCount: filtered.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10.0),
-                      itemBuilder: (context, i) {
-                        final item = filtered[i];
-                        return MediaCard(
-                          item: item,
-                          onTap: () => SafeTap.run(() => context.push(_detailRoute(item.id))),
-                          onDelete: () =>
-                              ref.read(mediaListProvider.notifier).delete(item.id),
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = constraints.maxWidth;
+                        final crossAxisCount = width > 600 ? 5 : 3;
+                        final totalSpacing = (crossAxisCount - 1) * 12.0;
+                        final itemWidth = (width - 32.0 - totalSpacing) / crossAxisCount;
+                        final textScaler = MediaQuery.textScalerOf(context);
+                        final metadataHeight = textScaler.scale(48.0);
+                        final posterHeight = itemWidth * 1.48; // standard 2:3 aspect ratio
+                        final itemHeight = posterHeight + 6.0 + metadataHeight;
+                        final childAspectRatio = itemWidth / itemHeight;
+
+                        return GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 80.0),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
+                            crossAxisSpacing: 12.0,
+                            mainAxisSpacing: 16.0,
+                            childAspectRatio: childAspectRatio,
+                          ),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, i) {
+                            final item = filtered[i];
+                            return MediaCard(
+                              item: item,
+                              onTap: () => SafeTap.run(() => context.push(_detailRoute(item.id))),
+                              onDelete: () =>
+                                  ref.read(mediaListProvider.notifier).delete(item.id),
+                            );
+                          },
                         );
                       },
                     );
@@ -180,6 +196,65 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGridShimmer() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = width > 600 ? 5 : 3;
+        final totalSpacing = (crossAxisCount - 1) * 12.0;
+        final itemWidth = (width - 32.0 - totalSpacing) / crossAxisCount;
+        final textScaler = MediaQuery.textScalerOf(context);
+        final metadataHeight = textScaler.scale(48.0);
+        final posterHeight = itemWidth * 1.48;
+        final itemHeight = posterHeight + 6.0 + metadataHeight;
+        final childAspectRatio = itemWidth / itemHeight;
+
+        return GridView.builder(
+          padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 80.0),
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 12.0,
+            mainAxisSpacing: 16.0,
+            childAspectRatio: childAspectRatio,
+          ),
+          itemCount: 6,
+      itemBuilder: (_, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: 70,
+            height: 12,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: 40,
+            height: 10,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+        ],
+      ),
+    );
+      },
     );
   }
 }
