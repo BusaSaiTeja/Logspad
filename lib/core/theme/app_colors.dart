@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+ 
 /// All color tokens from DESIGN.md — single source of truth.
 /// Naming matches the design system's CSS custom-property names (camelCase).
 abstract final class AppColors {
@@ -51,6 +51,8 @@ abstract final class AppColors {
   static const Color surfaceTint = Color(0xFF4D44E3);
 
   // ── On-Surface ────────────────────────────────────────────────────────────
+  /// Rich obsidian for typography & icons — replaces harsh raw black with refined deep slate.
+  static const Color obsidian = Color(0xFF0F172A);
   static const Color onSurface = Color(0xFF191C1E);
   static const Color onSurfaceVariant = Color(0xFF464555);
   static const Color inverseSurface = Color(0xFF2D3133);
@@ -91,4 +93,14 @@ abstract final class AppColors {
   static const Color priorityHigh = error;
   static const Color priorityMedium = secondaryContainer;
   static const Color priorityLow = tertiaryContainer;
+
+  // ── Card Elevation / Shadows ──────────────────────────────────────────────
+  static final List<BoxShadow> cardShadow = [
+    BoxShadow(
+      color: const Color(0xFF0F172A).withValues(alpha: 0.06),
+      blurRadius: 12,
+      spreadRadius: 0,
+      offset: const Offset(0, 4),
+    ),
+  ];
 }

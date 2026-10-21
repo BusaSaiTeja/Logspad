@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
-import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
-import 'package:my_logs/features/watch/domain/models/media_item.dart';
+import 'package:my_logs/features/watch/presentation/widgets/watch_category_card.dart';
+
+import 'package:my_logs/core/widgets/drawer_menu_button.dart';
+import 'package:my_logs/core/widgets/feature_more_options_button.dart';
 
 class WatchHubScreen extends ConsumerWidget {
   const WatchHubScreen({super.key});
@@ -18,168 +20,55 @@ class WatchHubScreen extends ConsumerWidget {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          color: AppColors.primary,
-          onPressed: () => context.go('/'),
-        ),
-        title: Text('Watch Hub', style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
+        leading: const DrawerMenuButton(tooltip: 'Open menu'),
+        title: Text('Watch Hub', style: AppTypography.headlineLgMobile.copyWith(color: AppColors.obsidian)),
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.account_circle_outlined),
-            color: AppColors.onSurfaceVariant,
-            onPressed: () => context.push('/profile'),
-          ),
+        actions: const [
+          FeatureMoreOptionsButton(featureName: 'Watch Hub'),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.containerPadding),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Watch Hub', style: AppTypography.display),
-            const SizedBox(height: AppSpacing.groupGap),
-            _WatchCategoryCard(
+            Text('Categories', style: AppTypography.headlineLg),
+            const SizedBox(height: 16.0),
+
+            // ── Movies Card ──────────────────────────────────────────────────
+            WatchCategoryCard(
               title: 'Movies',
+              subtitle: 'Feature films, reviews & ratings',
               itemCount: stats.movieCount,
-              posterUrls: const [
-                'https://images.unsplash.com/photo-1608178398319-48f814d0750c?w=200',
-                'https://images.unsplash.com/photo-1514565131-fce0801e6785?w=200',
-                'https://images.unsplash.com/photo-1434564764349-4803f97b8de3?w=200',
-              ],
+              icon: Icons.movie_filter_rounded,
+              gradientColors: const [Color(0xFF6366F1), Color(0xFF4F46E5)],
               onTap: () => context.go('/watch/movies'),
             ),
-            const SizedBox(height: AppSpacing.stackGap),
-            _WatchCategoryCard(
+            const SizedBox(height: 12.0),
+
+            // ── Animated Movies Card ─────────────────────────────────────────
+            WatchCategoryCard(
               title: 'Animated Movies',
+              subtitle: 'Animated features & classics',
               itemCount: stats.animatedCount,
-              posterUrls: const [
-                'https://images.unsplash.com/photo-1595120547202-f51a44451cb7?w=200',
-                'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=200',
-              ],
-              singlePoster: true,
+              icon: Icons.auto_awesome_rounded,
+              gradientColors: const [Color(0xFFF59E0B), Color(0xFFD97706)],
               onTap: () => context.go('/watch/animated'),
             ),
-            const SizedBox(height: AppSpacing.stackGap),
-            _WatchCategoryCard(
+            const SizedBox(height: 12.0),
+
+            // ── Anime Card ───────────────────────────────────────────────────
+            WatchCategoryCard(
               title: 'Anime',
+              subtitle: 'Anime series & seasonal releases',
               itemCount: stats.animeCount,
-              posterUrls: const [
-                'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=200',
-                'https://images.unsplash.com/photo-1578301978693-85fa9c0320b9?w=200',
-                'https://images.unsplash.com/photo-1583835746434-cf1534674b41?w=200',
-              ],
+              icon: Icons.tv_rounded,
+              gradientColors: const [Color(0xFFEC4899), Color(0xFF8B5CF6)],
               onTap: () => context.go('/watch/anime'),
             ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _WatchCategoryCard extends StatelessWidget {
-  const _WatchCategoryCard({
-    required this.title,
-    required this.itemCount,
-    required this.posterUrls,
-    required this.onTap,
-    this.singlePoster = false,
-  });
-
-  final String title;
-  final int itemCount;
-  final List<String> posterUrls;
-  final VoidCallback onTap;
-  final bool singlePoster;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.stackGap),
-          child: Row(
-            children: [
-              _PosterMosaic(urls: posterUrls, singlePoster: singlePoster),
-              const SizedBox(width: AppSpacing.stackGap),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: AppTypography.headlineMd),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$itemCount items',
-                      style: AppTypography.bodyMdVariant(),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded,
-                  color: AppColors.outlineVariant, size: 24),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PosterMosaic extends StatelessWidget {
-  const _PosterMosaic({required this.urls, this.singlePoster = false});
-  final List<String> urls;
-  final bool singlePoster;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-      child: SizedBox(
-        width: 80,
-        height: 80,
-        child: singlePoster || urls.length < 2
-            ? _PosterImage(url: urls.isNotEmpty ? urls[0] : '')
-            : Row(
-                children: [
-                  Expanded(child: _PosterImage(url: urls[0])),
-                  const SizedBox(width: 2),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Expanded(child: _PosterImage(url: urls.length > 1 ? urls[1] : '')),
-                        const SizedBox(height: 2),
-                        Expanded(child: _PosterImage(url: urls.length > 2 ? urls[2] : '')),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-      ),
-    );
-  }
-}
-
-class _PosterImage extends StatelessWidget {
-  const _PosterImage({required this.url});
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.surfaceVariant,
-      child: url.isEmpty
-          ? const Icon(Icons.movie_outlined, color: AppColors.outline, size: 24)
-          : Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const ColoredBox(color: AppColors.surfaceVariant),
-            ),
     );
   }
 }

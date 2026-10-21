@@ -1,24 +1,38 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:my_logs/core/router/app_router.dart';
 import 'package:my_logs/core/theme/app_theme.dart';
 import 'package:my_logs/core/utils/notification_service.dart';
+import 'package:my_logs/firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  if (!kIsWeb) {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: 104857600, // 100 MB bounded persistence
+    );
+  }
+
   await NotificationService.instance.initialize();
-  runApp(const ProviderScope(child: MyLogApp()));
+  runApp(const ProviderScope(child: LogspadApp()));
 }
 
-class MyLogApp extends StatelessWidget {
-  const MyLogApp({super.key});
+class LogspadApp extends StatelessWidget {
+  const LogspadApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'MyLog',
+      title: 'Logspad',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      themeMode: ThemeMode.light,
       routerConfig: appRouter,
     );
   }

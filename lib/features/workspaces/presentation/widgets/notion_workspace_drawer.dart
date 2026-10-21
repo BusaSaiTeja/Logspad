@@ -1,0 +1,710 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:my_logs/core/services/auth_service.dart';
+import 'package:my_logs/core/theme/app_colors.dart';
+import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/user_display_utils.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/features/learning_paths/application/learning_path_providers.dart';
+import 'package:my_logs/features/notes/application/note_providers.dart';
+import 'package:my_logs/features/read/application/book_providers.dart';
+import 'package:my_logs/features/reminders/application/reminder_providers.dart';
+import 'package:my_logs/features/tasks/application/task_providers.dart';
+import 'package:my_logs/features/watch/application/media_providers.dart';
+import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
+import 'package:my_logs/features/workspaces/domain/models/workspace_item.dart';
+import 'package:my_logs/features/workspaces/presentation/widgets/workspace_switcher_modal.dart';
+
+/// Global key to control the root scaffold drawer from anywhere in the application.
+final GlobalKey<ScaffoldState> rootScaffoldKey = GlobalKey<ScaffoldState>();
+
+class NotionWorkspaceDrawer extends ConsumerStatefulWidget {
+  const NotionWorkspaceDrawer({super.key});
+
+  @override
+  ConsumerState<NotionWorkspaceDrawer> createState() => _NotionWorkspaceDrawerState();
+}
+
+class _NotionWorkspaceDrawerState extends ConsumerState<NotionWorkspaceDrawer> {
+  // App Consistent Palette (Light mode matching app theme)
+  static const Color _bg = AppColors.surfaceContainerLowest; // Pure white / 0xFFFFFFFF
+  static const Color _surface = AppColors.surfaceContainerLow; // 0xFFF2F4F6
+  static const Color _border = Color(0xFFE2E8F0); // Subtle divider & border
+  static const Color _textPrimary = AppColors.obsidian; // Deep refined slate
+  static const Color _textSecondary = AppColors.onSurfaceVariant; // 0xFF464555
+
+  @override
+  Widget build(BuildContext context) {
+    final activeWs = ref.watch(activeWorkspaceProvider);
+
+    final notes = ref.watch(workspaceFilteredNotesProvider).valueOrNull ?? [];
+    final tasks = ref.watch(todayTasksProvider);
+    final reminders = ref.watch(todayRemindersProvider);
+    final books = ref.watch(workspaceFilteredBooksProvider);
+    final media = ref.watch(workspaceFilteredMediaProvider);
+    final paths = ref.watch(workspaceFilteredLearningPathsProvider).valueOrNull ?? [];
+
+    final enabledKeys = activeWs?.enabledFeatures ??
+        const ['notes', 'tasks', 'reminders'];
+
+    final currentLoc = GoRouterState.of(context).matchedLocation;
+
+    return Drawer(
+      backgroundColor: _bg,
+      surfaceTintColor: Colors.transparent,
+      elevation: 2,
+      width: MediaQuery.of(context).size.width * 0.85,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // ── Top Header (Workspace Pill + Quick Nav Pills) ──────────────
+            _buildTopHeader(activeWs),
+
+            // ── Scrollable Workspace Content ───────────────────────────────
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                children: [
+                  // ── Home Navigation Item ─────────────────────────────────
+                  _buildGmailNavItem(
+                    context: context,
+                    title: 'Home',
+                    icon: Icons.home_outlined,
+                    activeIcon: Icons.home_rounded,
+                    count: 0,
+                    isActive: currentLoc == '/' || currentLoc.isEmpty,
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      context.go('/');
+                    },
+                  ),
+
+                  // ── Feature Marketplace Navigation Item (below Home) ──────
+                  _buildGmailNavItem(
+                    context: context,
+                    title: 'Marketplace',
+                    icon: Icons.storefront_outlined,
+                    activeIcon: Icons.storefront_rounded,
+                    count: 0,
+                    isActive: currentLoc.startsWith('/marketplace'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      context.push('/marketplace');
+                    },
+                  ),
+
+                  const SizedBox(height: 4),
+                  const Divider(color: _border, height: 16, thickness: 1),
+                  const SizedBox(height: 2),
+
+                  // ── Section Title: Active Features ───────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'ACTIVE FEATURES',
+                          style: AppTypography.labelEyebrow,
+                        ),
+                        Text(
+                          '${enabledKeys.length} enabled',
+                          style: const TextStyle(
+                            color: _textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+
+                  // ── Gmail-Style Navigation List ──────────────────────────
+                  if (enabledKeys.contains('notes'))
+                    _buildGmailNavItem(
+                      context: context,
+                      title: 'Notes',
+                      icon: Icons.description_outlined,
+                      activeIcon: Icons.description_rounded,
+                      count: notes.length,
+                      isActive: currentLoc.startsWith('/notes'),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        context.go('/notes');
+                      },
+                    ),
+
+                  if (enabledKeys.contains('tasks'))
+                    _buildGmailNavItem(
+                      context: context,
+                      title: 'Tasks',
+                      icon: Icons.check_box_outlined,
+                      activeIcon: Icons.check_box_rounded,
+                      count: tasks.length,
+                      isActive: currentLoc.startsWith('/tasks'),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        context.go('/tasks');
+                      },
+                    ),
+
+                  if (enabledKeys.contains('reminders'))
+                    _buildGmailNavItem(
+                      context: context,
+                      title: 'Reminders',
+                      icon: Icons.alarm_rounded,
+                      activeIcon: Icons.alarm_on_rounded,
+                      count: reminders.length,
+                      isActive: currentLoc.startsWith('/reminders'),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        context.go('/reminders');
+                      },
+                    ),
+
+                  if (enabledKeys.contains('read'))
+                    _buildGmailNavItem(
+                      context: context,
+                      title: 'Read Tracker',
+                      icon: Icons.menu_book_outlined,
+                      activeIcon: Icons.menu_book_rounded,
+                      count: books.length,
+                      isActive: currentLoc.startsWith('/read'),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        context.go('/read');
+                      },
+                    ),
+
+                  if (enabledKeys.contains('watch'))
+                    _buildGmailNavItem(
+                      context: context,
+                      title: 'Watch Hub',
+                      icon: Icons.movie_outlined,
+                      activeIcon: Icons.movie_rounded,
+                      count: media.length,
+                      isActive: currentLoc.startsWith('/watch'),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        context.go('/watch');
+                      },
+                    ),
+
+                  if (enabledKeys.contains('learning_paths'))
+                    _buildGmailNavItem(
+                      context: context,
+                      title: 'Learning Paths',
+                      icon: Icons.alt_route_rounded,
+                      activeIcon: Icons.alt_route_rounded,
+                      count: paths.length,
+                      isActive: currentLoc.startsWith('/learning-paths'),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        context.go('/learning-paths');
+                      },
+                    ),
+
+                  const SizedBox(height: 80),
+                ],
+              ),
+            ),
+
+            // ── Bottom Fixed Search Pill & Quick New Button ─────────────────
+            _buildBottomBar(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Top Header (Minimalist Clean Workspace Selector) ──────────────────────
+  Widget _buildTopHeader(WorkspaceItem? activeWs) {
+    final wsName = activeWs?.name ?? 'Personal';
+    final wsColor = Color(activeWs?.colorValue ?? 0xFF4F46E5);
+    final wsInitial = wsName.isNotEmpty ? wsName[0].toUpperCase() : 'P';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _border, width: 1)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _showNotionWorkspaceDropdown(context),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            child: Row(
+              children: [
+                // Workspace Accent Avatar
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: wsColor,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Center(
+                    child: Text(
+                      wsInitial,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Workspace Name
+                Expanded(
+                  child: Text(
+                    wsName,
+                    style: const TextStyle(
+                      color: _textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+
+                const SizedBox(width: 6),
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 20,
+                  color: _textSecondary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Notion-Style Workspace Dropdown Menu (Image 2) ─────────────────────────
+  void _showNotionWorkspaceDropdown(BuildContext context) {
+    final activeWs = ref.read(activeWorkspaceProvider);
+    final allWorkspaces = ref.read(workspaceListProvider).valueOrNull ?? [];
+    final activeId = ref.read(activeWorkspaceIdProvider).valueOrNull;
+    final user = ref.read(authStateProvider).valueOrNull;
+
+    final wsName = activeWs?.name ?? 'Personal';
+    final wsColor = Color(activeWs?.colorValue ?? 0xFF4F46E5);
+    final wsInitial = wsName.isNotEmpty ? wsName[0].toUpperCase() : 'P';
+    final email = UserDisplayUtils.getEmail(user);
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.25),
+      builder: (ctx) {
+        return Dialog(
+          alignment: Alignment.topLeft,
+          insetPadding: const EdgeInsets.only(left: 14, top: 48, right: 36),
+          backgroundColor: _bg,
+          surfaceTintColor: Colors.transparent,
+          elevation: 10,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: _border, width: 1),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Top Header Tile (Big Initial + Workspace Title) ───────
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: wsColor,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Text(
+                            wsInitial,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              wsName,
+                              style: const TextStyle(
+                                color: _textPrimary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Active Workspace',
+                              style: TextStyle(
+                                color: _textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Action Links ──────────────────────────────────────────
+                  _buildDropdownAction(
+                    icon: Icons.settings_outlined,
+                    iconColor: _textSecondary,
+                    title: 'Settings',
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      Navigator.of(context).pop();
+                      context.push('/settings');
+                    },
+                  ),
+                  _buildDropdownAction(
+                    icon: Icons.person_outline_rounded,
+                    iconColor: _textSecondary,
+                    title: 'Add account',
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      Navigator.of(context).pop();
+                      context.push('/profile');
+                    },
+                  ),
+
+                  const SizedBox(height: 8),
+                  const Divider(color: _border, height: 1, thickness: 1),
+                  const SizedBox(height: 8),
+
+                  // ── User Email Header ─────────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Text(
+                      email,
+                      style: const TextStyle(
+                        color: _textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  // ── Workspaces List (matching Image 2) ─────────────────────
+                  ...allWorkspaces.map((ws) {
+                    final isCurrent = ws.id == activeId || (activeId == null && ws.isDefault);
+                    final col = Color(ws.colorValue);
+                    final initial = ws.name.isNotEmpty ? ws.name[0].toUpperCase() : 'W';
+
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          ref.read(activeWorkspaceIdProvider.notifier).setActive(ws.id);
+                          Navigator.of(ctx).pop();
+                        },
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isCurrent ? _surface : Colors.transparent,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  color: col,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    initial,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  ws.name,
+                                  style: TextStyle(
+                                    color: isCurrent ? _textPrimary : _textSecondary,
+                                    fontSize: 13,
+                                    fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (isCurrent)
+                                const Icon(Icons.check_rounded, color: _textPrimary, size: 18),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+
+                  const SizedBox(height: 4),
+
+                  // ── + New workspace ───────────────────────────────────────
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        WorkspaceSwitcherModal.show(context);
+                      },
+                      borderRadius: BorderRadius.circular(6),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                        child: Row(
+                          children: [
+                            Icon(Icons.add_rounded, color: AppColors.primary, size: 16),
+                            SizedBox(width: 8),
+                            Text(
+                              'New workspace',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 6),
+                  const Divider(color: _border, height: 1, thickness: 1),
+                  const SizedBox(height: 4),
+
+                  // ── Log out ───────────────────────────────────────────────
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _confirmLogout(context);
+                      },
+                      borderRadius: BorderRadius.circular(6),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                        child: Row(
+                          children: [
+                            Icon(Icons.logout_rounded, color: _textSecondary, size: 16),
+                            SizedBox(width: 8),
+                            Text(
+                              'Log out',
+                              style: TextStyle(
+                                color: _textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDropdownAction({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: iconColor),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: _textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  // ── 🚪 Centralized Logout Confirmation Dialog ───────────────────────────────
+  void _confirmLogout(BuildContext context) {
+    showLogoutConfirmationDialog(
+      context: context,
+      ref: ref,
+      onBeforeSignOut: () {
+        if (context.mounted) {
+          Navigator.of(context).pop(); // close drawer
+        }
+      },
+    );
+  }
+
+  // ── Gmail-Style Navigation Item ────────────────────────────────────────────
+  Widget _buildGmailNavItem({
+    required BuildContext context,
+    required String title,
+    required IconData icon,
+    required IconData activeIcon,
+    required int count,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    const activeColor = AppColors.primary;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            decoration: BoxDecoration(
+              color: isActive
+                  ? activeColor.withValues(alpha: 0.10)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(24),
+              border: isActive
+                  ? Border.all(color: activeColor.withValues(alpha: 0.35), width: 1)
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isActive ? activeIcon : icon,
+                  color: isActive ? activeColor : _textSecondary,
+                  size: 20,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: isActive ? activeColor : _textPrimary,
+                      fontSize: 14,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (count > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isActive ? activeColor : _surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: TextStyle(
+                        color: isActive ? Colors.white : _textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Bottom Fixed Bar (Search / AI Assistant) ──────────────────────────────
+  Widget _buildBottomBar(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+      decoration: const BoxDecoration(
+        color: _bg,
+        border: Border(top: BorderSide(color: _border, width: 1)),
+      ),
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).pop();
+          context.push('/ai-assistant');
+        },
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: _surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _border, width: 1),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.auto_awesome, size: 16, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                'Ask AI Assistant...',
+                style: TextStyle(
+                  color: _textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

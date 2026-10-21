@@ -4,10 +4,16 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
-import 'package:my_logs/core/utils/date_utils.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
+import 'package:my_logs/core/widgets/pill_tab_bar.dart';
 import 'package:my_logs/features/tasks/application/task_providers.dart';
 import 'package:my_logs/features/tasks/domain/models/task_item.dart';
+import 'package:my_logs/features/tasks/presentation/widgets/task_tile.dart';
+import 'package:my_logs/core/widgets/drawer_menu_button.dart';
+import 'package:my_logs/core/widgets/feature_more_options_button.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
@@ -17,250 +23,272 @@ class TasksScreen extends ConsumerStatefulWidget {
 }
 
 class _TasksScreenState extends ConsumerState<TasksScreen> {
-  bool _completedExpanded = false;
+  int _selectedTab = 0;
+  final PageController _pageController = PageController();
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _onTabSelected(int index) {
+    setState(() => _selectedTab = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOutCubic,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final taskListAsync = ref.watch(taskListProvider);
     final today = ref.watch(todayTasksProvider);
     final upcoming = ref.watch(upcomingTasksProvider);
     final completed = ref.watch(completedTasksProvider);
+    final missed = ref.watch(missedTasksProvider);
+
+    final totalPending = today.length + upcoming.length;
+
+    final tabs = [
+      "Pending ($totalPending)",
+      "Completed (${completed.length})",
+      "Missed (${missed.length})",
+    ];
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          color: AppColors.primary,
-          onPressed: () => context.go('/'),
-        ),
-        title: Text('Tasks', style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
+        leading: const DrawerMenuButton(tooltip: 'Open menu'),
+        title: Text('Tasks', style: AppTypography.headlineLgMobile.copyWith(color: AppColors.obsidian)),
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            color: AppColors.primary,
-            onPressed: () => context.push('/tasks/add'),
+        actions: const [
+          FeatureMoreOptionsButton(featureName: 'Tasks'),
+        ],
+      ),
+      // ── Floating Action Button (Only visible on Pending tab) ──────────────
+      floatingActionButton: _selectedTab == 0
+          ? FloatingActionButton(
+              heroTag: 'tasks_fab',
+              backgroundColor: AppColors.primary,
+              foregroundColor: AppColors.onPrimary,
+              onPressed: () => SafeTap.run(() => context.push('/tasks/add')),
+              child: const Icon(Icons.add_rounded),
+            )
+          : null,
+      body: Column(
+        children: [
+          // ── Shared PillTabBar with smooth sliding indicator ──────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+            child: PillTabBar(
+              tabs: tabs,
+              selectedIndex: _selectedTab,
+              onTabSelected: _onTabSelected,
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.account_circle_outlined),
-            color: AppColors.onSurfaceVariant,
-            onPressed: () => context.push('/profile'),
+          // ── State Handler: Loading, Error, or Swipeable List ───────────────
+          Expanded(
+            child: taskListAsync.when(
+              loading: () => const ShimmerSkeletonList(
+                itemCount: 5,
+                cardHeight: 74,
+              ),
+              error: (err, _) => ErrorStateView(
+                message: err.toString(),
+                onRetry: () => ref.refresh(taskListProvider),
+              ),
+              data: (_) => RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () async => ref.refresh(taskListProvider),
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (i) => setState(() => _selectedTab = i),
+                  children: [
+                    // ── Tab 0: Pending (Sections: Today + Upcoming) ─────────────
+                    _buildPendingTab(today: today, upcoming: upcoming),
+
+                    // ── Tab 1: Completed (Clean History View, No Add Button) ───
+                    _buildSimpleTaskList(
+                      tasks: completed,
+                      emptyIcon: Icons.check_circle_outline_rounded,
+                      emptyTitle: 'No completed tasks yet',
+                      emptySubtitle: 'Tasks you mark as done will appear here',
+                    ),
+
+                    // ── Tab 2: Missed (Clean Warning View, No Add Button) ───────
+                    _buildSimpleTaskList(
+                      tasks: missed,
+                      emptyIcon: Icons.warning_amber_rounded,
+                      emptyTitle: 'No missed tasks',
+                      emptySubtitle: 'Great job keeping up with deadlines!',
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),
-      body: (today.isEmpty && upcoming.isEmpty && completed.isEmpty)
-          ? EmptyState(
-              icon: Icons.check_circle_outline_rounded,
-              title: 'All clear!',
-              subtitle: 'Add your first task to get started',
-              actionLabel: 'Add Task',
-              onAction: () => context.push('/tasks/add'),
-            )
-          : ListView(
-              padding: const EdgeInsets.all(AppSpacing.containerPadding),
-              children: [
-                // ── Today ────────────────────────────────────────────────────
-                if (today.isNotEmpty) ...[
-                  _SectionHeader(title: "Today's Tasks", count: today.length),
-                  const SizedBox(height: AppSpacing.unit * 2),
-                  ...today.map((t) => _TaskTile(
-                        task: t,
-                        onToggle: () => ref.read(taskListProvider.notifier).toggleComplete(t.id),
-                        onTap: () => context.push('/tasks/${t.id}/edit'),
-                        onDelete: () => ref.read(taskListProvider.notifier).delete(t.id),
-                      )),
-                  const SizedBox(height: AppSpacing.groupGap),
-                ],
-
-
-
-                // ── Upcoming ──────────────────────────────────────────────────
-                if (upcoming.isNotEmpty) ...[
-                  _SectionHeader(title: 'Upcoming', count: upcoming.length),
-                  const SizedBox(height: AppSpacing.unit * 2),
-                  ...upcoming.map((t) => _TaskTile(
-                        task: t,
-                        onToggle: () => ref.read(taskListProvider.notifier).toggleComplete(t.id),
-                        onTap: () => context.push('/tasks/${t.id}/edit'),
-                        onDelete: () => ref.read(taskListProvider.notifier).delete(t.id),
-                      )),
-                  const SizedBox(height: AppSpacing.groupGap),
-                ],
-
-                // ── Completed (collapsible) ───────────────────────────────────
-                if (completed.isNotEmpty) ...[
-                  GestureDetector(
-                    onTap: () => setState(() => _completedExpanded = !_completedExpanded),
-                    child: Row(
-                      children: [
-                        _SectionHeader(title: 'Completed', count: completed.length),
-                        const Spacer(),
-                        Icon(
-                          _completedExpanded
-                              ? Icons.keyboard_arrow_up_rounded
-                              : Icons.keyboard_arrow_down_rounded,
-                          color: AppColors.onSurfaceVariant,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_completedExpanded) ...[
-                    const SizedBox(height: AppSpacing.unit * 2),
-                    ...completed.take(5).map((t) => _TaskTile(
-                          task: t,
-                          onToggle: () =>
-                              ref.read(taskListProvider.notifier).toggleComplete(t.id),
-                          onTap: () => context.push('/tasks/${t.id}/edit'),
-                          onDelete: () =>
-                              ref.read(taskListProvider.notifier).delete(t.id),
-                        )),
-                  ],
-                  const SizedBox(height: AppSpacing.groupGap),
-                ],
-              ],
-            ),
     );
   }
-}
 
-// ── Section Header ─────────────────────────────────────────────────────────────
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, required this.count});
-  final String title;
-  final int count;
+  Widget _buildPendingTab({
+    required List<TaskItem> today,
+    required List<TaskItem> upcoming,
+  }) {
+    if (today.isEmpty && upcoming.isEmpty) {
+      return EmptyState(
+        icon: Icons.pending_actions_rounded,
+        title: 'No pending tasks',
+        subtitle: 'All caught up! Tap + to create a new task',
+        actionLabel: 'Add Task',
+        onAction: () => context.push('/tasks/add'),
+      );
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return Row(
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       children: [
-        Text(title, style: AppTypography.headlineMd),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+        // ── Section: Today ──────────────────────────────────────────────────
+        if (today.isNotEmpty) ...[
+          _sectionHeader(
+            title: 'Today',
+            count: today.length,
+            icon: Icons.today_rounded,
+            iconColor: AppColors.primary,
           ),
-          child: Text('$count', style: AppTypography.labelMd),
-        ),
+          const SizedBox(height: 8),
+          ...today.map((t) => TaskTile(
+                task: t,
+                showDate: false,
+                onToggle: () => _handleToggle(t),
+                onTap: () => SafeTap.run(() => context.push('/tasks/${t.id}/edit')),
+                onDelete: () => _handleDelete(t.id),
+              )),
+          const SizedBox(height: 16),
+        ],
+
+        // ── Section: Upcoming ───────────────────────────────────────────────
+        if (upcoming.isNotEmpty) ...[
+          _sectionHeader(
+            title: 'Upcoming',
+            count: upcoming.length,
+            icon: Icons.upcoming_rounded,
+            iconColor: const Color(0xFF6366F1),
+          ),
+          const SizedBox(height: 8),
+          ...upcoming.map((t) => TaskTile(
+                task: t,
+                onToggle: () => _handleToggle(t),
+                onTap: () => SafeTap.run(() => context.push('/tasks/${t.id}/edit')),
+                onDelete: () => _handleDelete(t.id),
+              )),
+          const SizedBox(height: 12),
+        ],
       ],
     );
   }
-}
 
-// ── Task Tile ──────────────────────────────────────────────────────────────────
-class _TaskTile extends StatelessWidget {
-  const _TaskTile({
-    required this.task,
-    required this.onToggle,
-    required this.onTap,
-    required this.onDelete,
-  });
-  final TaskItem task;
-  final VoidCallback onToggle;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  Color _priorityColor() => switch (task.priority) {
-        TaskPriority.high => AppColors.priorityHigh,
-        TaskPriority.medium => AppColors.primaryContainer,
-        TaskPriority.low => AppColors.outlineVariant,
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    return Dismissible(
-      key: Key(task.id),
-      direction: DismissDirection.endToStart,
-      onDismissed: (_) => onDelete(),
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(
-          color: AppColors.error.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-        ),
-        child: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
-      ),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: AppSpacing.unit * 2),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+  Widget _sectionHeader({
+    required String title,
+    required int count,
+    required IconData icon,
+    required Color iconColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4.0, right: 4.0, bottom: 2.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: iconColor),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: AppTypography.headlineMd.copyWith(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          child: Row(
-            children: [
-              // Priority dot
-              Container(
-                width: 6,
-                height: 6,
-                margin: const EdgeInsets.only(right: 12),
-                decoration: BoxDecoration(
-                  color: _priorityColor(),
-                  shape: BoxShape.circle,
-                ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: iconColor,
               ),
-              // Checkbox
-              GestureDetector(
-                onTap: onToggle,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: task.isCompleted ? AppColors.primary : AppColors.outline,
-                      width: 2,
-                    ),
-                    color: task.isCompleted ? AppColors.primary : Colors.transparent,
-                  ),
-                  child: task.isCompleted
-                      ? const Icon(Icons.check_rounded, color: AppColors.onPrimary, size: 14)
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task.title,
-                      style: task.isCompleted
-                          ? AppTypography.bodyLg.copyWith(
-                              color: AppColors.outline,
-                              decoration: TextDecoration.lineThrough,
-                              decorationColor: AppColors.outline,
-                            )
-                          : AppTypography.bodyLg,
-                    ),
-                    if (task.dueDate != null) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today, size: 14, color: AppColors.onSurfaceVariant),
-                          const SizedBox(width: 4),
-                          Text(
-                            AppDateUtils.formatDate(task.dueDate!),
-                            style: AppTypography.labelMdOutline(),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
+
+  Widget _buildSimpleTaskList({
+    required List<TaskItem> tasks,
+    required IconData emptyIcon,
+    required String emptyTitle,
+    required String emptySubtitle,
+  }) {
+    if (tasks.isEmpty) {
+      return EmptyState(
+        icon: emptyIcon,
+        title: emptyTitle,
+        subtitle: emptySubtitle,
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      itemCount: tasks.length,
+      itemBuilder: (context, index) {
+        final t = tasks[index];
+        return TaskTile(
+          task: t,
+          onToggle: () => _handleToggle(t),
+          onTap: () => SafeTap.run(() => context.push('/tasks/${t.id}/edit')),
+          onDelete: () => _handleDelete(t.id),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleToggle(TaskItem task) async {
+    try {
+      await ref.read(taskListProvider.notifier).toggleComplete(task.id);
+      if (mounted) {
+        AppSnackBar.showSuccess(
+          context,
+          task.isCompleted ? 'Task marked as pending' : 'Task completed',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppSnackBar.showError(context, 'Failed to update task: $e');
+      }
+    }
+  }
+
+  Future<void> _handleDelete(String taskId) async {
+    try {
+      await ref.read(taskListProvider.notifier).delete(taskId);
+      if (mounted) {
+        AppSnackBar.showSuccess(context, 'Task deleted');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppSnackBar.showError(context, 'Failed to delete task: $e');
+      }
+    }
+  }
 }
-
-

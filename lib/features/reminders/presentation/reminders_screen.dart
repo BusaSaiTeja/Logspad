@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
-import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
-import 'package:my_logs/core/utils/date_utils.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/reminders/application/reminder_providers.dart';
-import 'package:my_logs/features/reminders/domain/models/reminder_item.dart';
+import 'package:my_logs/features/reminders/presentation/widgets/reminder_tile.dart';
+import 'package:my_logs/core/widgets/drawer_menu_button.dart';
+import 'package:my_logs/core/widgets/feature_more_options_button.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 
 class RemindersScreen extends ConsumerWidget {
   const RemindersScreen({super.key});
@@ -15,93 +18,97 @@ class RemindersScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final remindersAsync = ref.watch(reminderListProvider);
-    final reminders = remindersAsync.valueOrNull ?? [];
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          color: AppColors.primary,
-          onPressed: () => context.go('/'),
-        ),
+        leading: const DrawerMenuButton(tooltip: 'Open menu'),
         title: Text(
           'Reminders',
-          style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary),
+          style: AppTypography.headlineLgMobile.copyWith(color: AppColors.obsidian),
         ),
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            color: AppColors.primary,
-            onPressed: () => context.push('/reminders/add'),
-          ),
+        actions: const [
+          FeatureMoreOptionsButton(featureName: 'Reminders'),
         ],
       ),
-      body: reminders.isEmpty
-          ? EmptyState(
-              icon: Icons.alarm_rounded,
-              title: 'No reminders set',
-              subtitle: 'Set reminders for your daily routines & tasks',
-              actionLabel: 'Add Reminder',
-              onAction: () => context.push('/reminders/add'),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(AppSpacing.containerPadding),
-              itemCount: reminders.length,
-              itemBuilder: (context, i) {
-                final r = reminders[i];
-                return Dismissible(
-                  key: Key(r.id),
-                  direction: DismissDirection.endToStart,
-                  onDismissed: (_) => ref.read(reminderListProvider.notifier).delete(r.id),
-                  background: Container(
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    decoration: BoxDecoration(
-                      color: AppColors.error.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'reminders_fab',
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
+        onPressed: () => SafeTap.run(() => context.push('/reminders/add')),
+        child: const Icon(Icons.add_rounded),
+      ),
+      body: remindersAsync.when(
+        loading: () => const ShimmerSkeletonList(
+          itemCount: 4,
+          cardHeight: 76,
+        ),
+        error: (err, _) => ErrorStateView(
+          message: err.toString(),
+          onRetry: () => ref.refresh(reminderListProvider),
+        ),
+        data: (reminders) => RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: () async => ref.refresh(reminderListProvider),
+          child: reminders.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.65,
+                      child: EmptyState(
+                        icon: Icons.alarm_rounded,
+                        title: 'No reminders set',
+                        subtitle: 'Set reminders for your daily routines & tasks',
+                        actionLabel: 'Add Reminder',
+                        onAction: () => SafeTap.run(() => context.push('/reminders/add')),
+                      ),
                     ),
-                    child: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
-                  ),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: AppSpacing.unit * 2),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.alarm_rounded, color: AppColors.primary, size: 20),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => context.push('/reminders/${r.id}/edit'),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(r.title, style: AppTypography.bodyLg),
-                                Text(
-                                  '${AppDateUtils.formatTime(r.scheduledTime)} • ${r.recurrence.label}',
-                                  style: AppTypography.labelMdOutline(),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        Switch(
-                          value: r.isEnabled,
-                          onChanged: (_) => ref.read(reminderListProvider.notifier).toggle(r.id),
-                          activeThumbColor: AppColors.primary,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+                  ],
+                )
+              : ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  itemCount: reminders.length,
+                  itemBuilder: (context, i) {
+                    final r = reminders[i];
+                    return ReminderTile(
+                      reminder: r,
+                      onToggle: () async {
+                        try {
+                          await ref.read(reminderListProvider.notifier).toggle(r.id);
+                          if (context.mounted) {
+                            AppSnackBar.showSuccess(
+                              context,
+                              r.isEnabled ? 'Reminder turned off' : 'Reminder turned on',
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            AppSnackBar.showError(context, 'Failed to update reminder: $e');
+                          }
+                        }
+                      },
+                      onTap: () => SafeTap.run(() => context.push('/reminders/${r.id}/edit')),
+                      onDelete: () async {
+                        try {
+                          await ref.read(reminderListProvider.notifier).delete(r.id);
+                          if (context.mounted) {
+                            AppSnackBar.showSuccess(context, 'Reminder deleted');
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            AppSnackBar.showError(context, 'Failed to delete reminder: $e');
+                          }
+                        }
+                      },
+                    );
+                  },
+                ),
+        ),
+      ),
     );
   }
 }

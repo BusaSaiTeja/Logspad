@@ -6,12 +6,21 @@ abstract final class AppDateUtils {
   static final _shortDateFormatter = DateFormat('MMM d');
   static final _timeFormatter = DateFormat('h:mm a');
   static final _dayFormatter = DateFormat('EEEE, MMMM d');
-  static final _greetingFormatter = DateFormat('EEEE, MMMM do');
 
   static String formatDate(DateTime date) => _dateFormatter.format(date);
   static String formatShortDate(DateTime date) => _shortDateFormatter.format(date);
   static String formatTime(DateTime date) => _timeFormatter.format(date);
   static String formatDayLong(DateTime date) => _dayFormatter.format(date);
+  static String weekdayName(int weekday) => switch (weekday) {
+        1 => 'Monday',
+        2 => 'Tuesday',
+        3 => 'Wednesday',
+        4 => 'Thursday',
+        5 => 'Friday',
+        6 => 'Saturday',
+        7 => 'Sunday',
+        _ => 'Day',
+      };
 
   static String greetingDate(DateTime date) {
     // "Wednesday, October 25th"

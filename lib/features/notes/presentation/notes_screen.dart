@@ -4,142 +4,212 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
-import 'package:my_logs/core/utils/date_utils.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
+import 'package:my_logs/core/widgets/pill_tab_bar.dart';
 import 'package:my_logs/features/notes/application/note_providers.dart';
-import 'package:my_logs/features/notes/domain/models/note_item.dart';
+import 'package:my_logs/features/notes/presentation/widgets/note_card.dart';
 
-class NotesScreen extends ConsumerWidget {
+import 'package:my_logs/core/widgets/drawer_menu_button.dart';
+import 'package:my_logs/core/widgets/feature_more_options_button.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
+
+class NotesScreen extends ConsumerStatefulWidget {
   const NotesScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final notesAsync = ref.watch(noteListProvider);
+  ConsumerState<NotesScreen> createState() => _NotesScreenState();
+}
+
+class _NotesScreenState extends ConsumerState<NotesScreen> {
+  int _selectedCategoryIndex = 0;
+  final PageController _pageController = PageController();
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _onCategorySelected(int index) {
+    setState(() => _selectedCategoryIndex = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOutCubic,
+      );
+    }
+  }
+
+  void _showAddCategoryDialog() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Category Tag'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Category name (e.g. Finance, Fitness)',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => ctx.pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              final newCat = ctrl.text.trim();
+              if (newCat.isNotEmpty) {
+                ref.read(noteCategoriesProvider.notifier).addCategory(newCat);
+                final updatedCategories = ref.read(noteCategoriesProvider);
+                final newIdx = updatedCategories.indexOf(newCat);
+                if (newIdx != -1) {
+                  _onCategorySelected(newIdx);
+                }
+              }
+              ctx.pop();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final notesAsync = ref.watch(workspaceFilteredNotesProvider);
+    final categories = ref.watch(noteCategoriesProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          color: AppColors.primary,
-          onPressed: () => context.go('/'),
-        ),
+        leading: const DrawerMenuButton(tooltip: 'Open menu'),
         title: Text('Notes',
-            style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
+            style: AppTypography.headlineLgMobile.copyWith(color: AppColors.obsidian)),
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            color: AppColors.primary,
-            onPressed: () => context.push('/notes/add'),
-          ),
+        actions: const [
+          FeatureMoreOptionsButton(featureName: 'Notes'),
         ],
       ),
-      body: notesAsync.when(
-        loading: () =>
-            const Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2)),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (notes) => notes.isEmpty
-            ? EmptyState(
-                icon: Icons.sticky_note_2_outlined,
-                title: 'No notes yet',
-                subtitle: 'Tap + to create your first note',
-                actionLabel: 'New Note',
-                onAction: () => context.push('/notes/add'),
-              )
-            : Padding(
-                padding: const EdgeInsets.all(AppSpacing.containerPadding),
-                child: GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: AppSpacing.gutter,
-                    mainAxisSpacing: AppSpacing.gutter,
-                    childAspectRatio: 0.85,
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'notes_fab',
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
+        onPressed: () => SafeTap.run(() => context.push('/notes/add')),
+        child: const Icon(Icons.add_rounded),
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Shared PillTabBar with sliding indicator & + Tag button ───────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: PillTabBar(
+              tabs: categories,
+              selectedIndex: _selectedCategoryIndex.clamp(0, categories.length - 1),
+              onTabSelected: _onCategorySelected,
+              trailing: GestureDetector(
+                onTap: _showAddCategoryDialog,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                   ),
-                  itemCount: notes.length,
-                  itemBuilder: (context, i) => _NoteCard(
-                    note: notes[i],
-                    onTap: () => context.push('/notes/${notes[i].id}'),
-                    onDelete: () => ref.read(noteListProvider.notifier).delete(notes[i].id),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.add_rounded, size: 16, color: AppColors.primary),
+                      const SizedBox(width: 4),
+                      Text('Tag', style: AppTypography.labelMdPrimary()),
+                    ],
                   ),
                 ),
               ),
-      ),
-    );
-  }
-}
-
-class _NoteCard extends StatelessWidget {
-  const _NoteCard({required this.note, required this.onTap, required this.onDelete});
-  final NoteItem note;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  static final _palette = [
-    const Color(0xFFFFF9C4), // yellow
-    const Color(0xFFE8F5E9), // green
-    const Color(0xFFE3F2FD), // blue
-    const Color(0xFFFCE4EC), // pink
-    const Color(0xFFF3E5F5), // purple
-    const Color(0xFFFFF3E0), // orange
-  ];
-
-  Color get _cardColor => _palette[note.id.hashCode.abs() % _palette.length];
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: () => _confirmDelete(context),
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.stackGap),
-        decoration: BoxDecoration(
-          color: _cardColor,
-          borderRadius: BorderRadius.circular(AppSpacing.radius2Xl),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              note.title,
-              style: AppTypography.headlineMd.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 6),
-            Expanded(
-              child: Text(
-                note.content,
-                style: AppTypography.bodyMd.copyWith(fontSize: 13, color: const Color(0xFF555555)),
-                overflow: TextOverflow.fade,
+          ),
+          const SizedBox(height: 4),
+
+          // ── Swipeable Notes Grid PageView ─────────────────────────────────
+          Expanded(
+            child: notesAsync.when(
+              loading: () => const ShimmerSkeletonList(
+                isGrid: true,
+                itemCount: 6,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              AppDateUtils.formatShortDate(note.updatedAt),
-              style: AppTypography.labelMd.copyWith(color: const Color(0xFF888888), fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+              error: (e, _) => ErrorStateView(
+                message: e.toString(),
+                onRetry: () => ref.refresh(noteListProvider),
+              ),
+              data: (notes) {
+                return RefreshIndicator(
+                  color: AppColors.primary,
+                  onRefresh: () async => ref.refresh(noteListProvider),
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: categories.length,
+                    onPageChanged: (i) => setState(() => _selectedCategoryIndex = i),
+                    itemBuilder: (context, catIdx) {
+                      final catName = categories[catIdx];
+                      final filtered = catName == 'All'
+                          ? notes
+                          : notes.where((n) => n.tags.contains(catName)).toList();
 
-  void _confirmDelete(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete note?'),
-        content: Text('Delete "${note.title}"? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => ctx.pop(), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              ctx.pop();
-              onDelete();
-            },
-            child: Text('Delete', style: TextStyle(color: AppColors.error)),
+                      if (filtered.isEmpty) {
+                        if (catName != 'All') {
+                          return SearchEmptyView(
+                            query: catName,
+                            onClear: () => _onCategorySelected(0),
+                          );
+                        }
+                        return EmptyState(
+                          icon: Icons.sticky_note_2_outlined,
+                          title: 'No notes yet',
+                          subtitle: 'Capture your thoughts, ideas, and logs. Tap + to start.',
+                          actionLabel: 'New Note',
+                          onAction: () => SafeTap.run(() => context.push('/notes/add')),
+                        );
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        child: GridView.builder(
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12.0,
+                            mainAxisSpacing: 12.0,
+                            childAspectRatio: 0.85,
+                          ),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, i) => NoteCard(
+                            note: filtered[i],
+                            onTap: () => SafeTap.run(() => context.push('/notes/${filtered[i].id}')),
+                            onDelete: () async {
+                              try {
+                                await ref.read(noteListProvider.notifier).delete(filtered[i].id);
+                                if (context.mounted) {
+                                  AppSnackBar.showSuccess(context, 'Note deleted');
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  AppSnackBar.showError(context, 'Failed to delete note: $e');
+                                }
+                              }
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),

@@ -25,6 +25,7 @@ mixin _$BookItem {
   String get title => throw _privateConstructorUsedError;
   String get author => throw _privateConstructorUsedError;
   BookStatus get status => throw _privateConstructorUsedError;
+  bool get isCollection => throw _privateConstructorUsedError;
   String? get coverUrl => throw _privateConstructorUsedError;
   String? get synopsis => throw _privateConstructorUsedError;
   List<String> get genres => throw _privateConstructorUsedError;
@@ -32,6 +33,7 @@ mixin _$BookItem {
   int get currentPage => throw _privateConstructorUsedError;
   int? get totalPages => throw _privateConstructorUsedError;
   String? get notes => throw _privateConstructorUsedError;
+  String get workspaceId => throw _privateConstructorUsedError;
   DateTime get createdAt => throw _privateConstructorUsedError;
   DateTime get updatedAt => throw _privateConstructorUsedError;
 
@@ -55,6 +57,7 @@ abstract class $BookItemCopyWith<$Res> {
     String title,
     String author,
     BookStatus status,
+    bool isCollection,
     String? coverUrl,
     String? synopsis,
     List<String> genres,
@@ -62,6 +65,7 @@ abstract class $BookItemCopyWith<$Res> {
     int currentPage,
     int? totalPages,
     String? notes,
+    String workspaceId,
     DateTime createdAt,
     DateTime updatedAt,
   });
@@ -86,6 +90,7 @@ class _$BookItemCopyWithImpl<$Res, $Val extends BookItem>
     Object? title = null,
     Object? author = null,
     Object? status = null,
+    Object? isCollection = null,
     Object? coverUrl = freezed,
     Object? synopsis = freezed,
     Object? genres = null,
@@ -93,6 +98,7 @@ class _$BookItemCopyWithImpl<$Res, $Val extends BookItem>
     Object? currentPage = null,
     Object? totalPages = freezed,
     Object? notes = freezed,
+    Object? workspaceId = null,
     Object? createdAt = null,
     Object? updatedAt = null,
   }) {
@@ -114,6 +120,10 @@ class _$BookItemCopyWithImpl<$Res, $Val extends BookItem>
                 ? _value.status
                 : status // ignore: cast_nullable_to_non_nullable
                       as BookStatus,
+            isCollection: null == isCollection
+                ? _value.isCollection
+                : isCollection // ignore: cast_nullable_to_non_nullable
+                      as bool,
             coverUrl: freezed == coverUrl
                 ? _value.coverUrl
                 : coverUrl // ignore: cast_nullable_to_non_nullable
@@ -142,6 +152,10 @@ class _$BookItemCopyWithImpl<$Res, $Val extends BookItem>
                 ? _value.notes
                 : notes // ignore: cast_nullable_to_non_nullable
                       as String?,
+            workspaceId: null == workspaceId
+                ? _value.workspaceId
+                : workspaceId // ignore: cast_nullable_to_non_nullable
+                      as String,
             createdAt: null == createdAt
                 ? _value.createdAt
                 : createdAt // ignore: cast_nullable_to_non_nullable
@@ -170,6 +184,7 @@ abstract class _$$BookItemImplCopyWith<$Res>
     String title,
     String author,
     BookStatus status,
+    bool isCollection,
     String? coverUrl,
     String? synopsis,
     List<String> genres,
@@ -177,6 +192,7 @@ abstract class _$$BookItemImplCopyWith<$Res>
     int currentPage,
     int? totalPages,
     String? notes,
+    String workspaceId,
     DateTime createdAt,
     DateTime updatedAt,
   });
@@ -200,6 +216,7 @@ class __$$BookItemImplCopyWithImpl<$Res>
     Object? title = null,
     Object? author = null,
     Object? status = null,
+    Object? isCollection = null,
     Object? coverUrl = freezed,
     Object? synopsis = freezed,
     Object? genres = null,
@@ -207,6 +224,7 @@ class __$$BookItemImplCopyWithImpl<$Res>
     Object? currentPage = null,
     Object? totalPages = freezed,
     Object? notes = freezed,
+    Object? workspaceId = null,
     Object? createdAt = null,
     Object? updatedAt = null,
   }) {
@@ -228,6 +246,10 @@ class __$$BookItemImplCopyWithImpl<$Res>
             ? _value.status
             : status // ignore: cast_nullable_to_non_nullable
                   as BookStatus,
+        isCollection: null == isCollection
+            ? _value.isCollection
+            : isCollection // ignore: cast_nullable_to_non_nullable
+                  as bool,
         coverUrl: freezed == coverUrl
             ? _value.coverUrl
             : coverUrl // ignore: cast_nullable_to_non_nullable
@@ -256,6 +278,10 @@ class __$$BookItemImplCopyWithImpl<$Res>
             ? _value.notes
             : notes // ignore: cast_nullable_to_non_nullable
                   as String?,
+        workspaceId: null == workspaceId
+            ? _value.workspaceId
+            : workspaceId // ignore: cast_nullable_to_non_nullable
+                  as String,
         createdAt: null == createdAt
             ? _value.createdAt
             : createdAt // ignore: cast_nullable_to_non_nullable
@@ -277,6 +303,7 @@ class _$BookItemImpl implements _BookItem {
     required this.title,
     required this.author,
     this.status = BookStatus.toRead,
+    this.isCollection = false,
     this.coverUrl,
     this.synopsis,
     final List<String> genres = const [],
@@ -284,6 +311,7 @@ class _$BookItemImpl implements _BookItem {
     this.currentPage = 0,
     this.totalPages,
     this.notes,
+    this.workspaceId = '',
     required this.createdAt,
     required this.updatedAt,
   }) : _genres = genres;
@@ -300,6 +328,9 @@ class _$BookItemImpl implements _BookItem {
   @override
   @JsonKey()
   final BookStatus status;
+  @override
+  @JsonKey()
+  final bool isCollection;
   @override
   final String? coverUrl;
   @override
@@ -323,13 +354,16 @@ class _$BookItemImpl implements _BookItem {
   @override
   final String? notes;
   @override
+  @JsonKey()
+  final String workspaceId;
+  @override
   final DateTime createdAt;
   @override
   final DateTime updatedAt;
 
   @override
   String toString() {
-    return 'BookItem(id: $id, title: $title, author: $author, status: $status, coverUrl: $coverUrl, synopsis: $synopsis, genres: $genres, rating: $rating, currentPage: $currentPage, totalPages: $totalPages, notes: $notes, createdAt: $createdAt, updatedAt: $updatedAt)';
+    return 'BookItem(id: $id, title: $title, author: $author, status: $status, isCollection: $isCollection, coverUrl: $coverUrl, synopsis: $synopsis, genres: $genres, rating: $rating, currentPage: $currentPage, totalPages: $totalPages, notes: $notes, workspaceId: $workspaceId, createdAt: $createdAt, updatedAt: $updatedAt)';
   }
 
   @override
@@ -341,6 +375,8 @@ class _$BookItemImpl implements _BookItem {
             (identical(other.title, title) || other.title == title) &&
             (identical(other.author, author) || other.author == author) &&
             (identical(other.status, status) || other.status == status) &&
+            (identical(other.isCollection, isCollection) ||
+                other.isCollection == isCollection) &&
             (identical(other.coverUrl, coverUrl) ||
                 other.coverUrl == coverUrl) &&
             (identical(other.synopsis, synopsis) ||
@@ -352,6 +388,8 @@ class _$BookItemImpl implements _BookItem {
             (identical(other.totalPages, totalPages) ||
                 other.totalPages == totalPages) &&
             (identical(other.notes, notes) || other.notes == notes) &&
+            (identical(other.workspaceId, workspaceId) ||
+                other.workspaceId == workspaceId) &&
             (identical(other.createdAt, createdAt) ||
                 other.createdAt == createdAt) &&
             (identical(other.updatedAt, updatedAt) ||
@@ -366,6 +404,7 @@ class _$BookItemImpl implements _BookItem {
     title,
     author,
     status,
+    isCollection,
     coverUrl,
     synopsis,
     const DeepCollectionEquality().hash(_genres),
@@ -373,6 +412,7 @@ class _$BookItemImpl implements _BookItem {
     currentPage,
     totalPages,
     notes,
+    workspaceId,
     createdAt,
     updatedAt,
   );
@@ -397,6 +437,7 @@ abstract class _BookItem implements BookItem {
     required final String title,
     required final String author,
     final BookStatus status,
+    final bool isCollection,
     final String? coverUrl,
     final String? synopsis,
     final List<String> genres,
@@ -404,6 +445,7 @@ abstract class _BookItem implements BookItem {
     final int currentPage,
     final int? totalPages,
     final String? notes,
+    final String workspaceId,
     required final DateTime createdAt,
     required final DateTime updatedAt,
   }) = _$BookItemImpl;
@@ -420,6 +462,8 @@ abstract class _BookItem implements BookItem {
   @override
   BookStatus get status;
   @override
+  bool get isCollection;
+  @override
   String? get coverUrl;
   @override
   String? get synopsis;
@@ -433,6 +477,8 @@ abstract class _BookItem implements BookItem {
   int? get totalPages;
   @override
   String? get notes;
+  @override
+  String get workspaceId;
   @override
   DateTime get createdAt;
   @override

@@ -14,6 +14,7 @@ _$BookItemImpl _$$BookItemImplFromJson(Map<String, dynamic> json) =>
       status:
           $enumDecodeNullable(_$BookStatusEnumMap, json['status']) ??
           BookStatus.toRead,
+      isCollection: json['isCollection'] as bool? ?? false,
       coverUrl: json['coverUrl'] as String?,
       synopsis: json['synopsis'] as String?,
       genres:
@@ -25,6 +26,7 @@ _$BookItemImpl _$$BookItemImplFromJson(Map<String, dynamic> json) =>
       currentPage: (json['currentPage'] as num?)?.toInt() ?? 0,
       totalPages: (json['totalPages'] as num?)?.toInt(),
       notes: json['notes'] as String?,
+      workspaceId: json['workspaceId'] as String? ?? '',
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -35,6 +37,7 @@ Map<String, dynamic> _$$BookItemImplToJson(_$BookItemImpl instance) =>
       'title': instance.title,
       'author': instance.author,
       'status': _$BookStatusEnumMap[instance.status]!,
+      'isCollection': instance.isCollection,
       'coverUrl': instance.coverUrl,
       'synopsis': instance.synopsis,
       'genres': instance.genres,
@@ -42,6 +45,7 @@ Map<String, dynamic> _$$BookItemImplToJson(_$BookItemImpl instance) =>
       'currentPage': instance.currentPage,
       'totalPages': instance.totalPages,
       'notes': instance.notes,
+      'workspaceId': instance.workspaceId,
       'createdAt': instance.createdAt.toIso8601String(),
       'updatedAt': instance.updatedAt.toIso8601String(),
     };

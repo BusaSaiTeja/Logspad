@@ -2,16 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
-import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
 import 'package:my_logs/core/widgets/pill_tab_bar.dart';
-import 'package:my_logs/core/widgets/status_chip.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
+import 'package:my_logs/features/watch/presentation/widgets/media_card.dart';
 
-/// Reusable list screen for Movies, Animated Movies, and Anime.
-/// Category is injected via [category]; filtered by [MediaStatus] tabs.
 class MediaListScreen extends ConsumerStatefulWidget {
   const MediaListScreen({super.key, required this.category});
   final MediaCategory category;
@@ -23,6 +22,7 @@ class MediaListScreen extends ConsumerStatefulWidget {
 class _MediaListScreenState extends ConsumerState<MediaListScreen> {
   int _selectedTab = 0;
   String _searchQuery = '';
+  final PageController _pageController = PageController();
 
   static const _tabs = ['Plan to Watch', 'Watching', 'Completed', 'On Hold', 'Dropped'];
   static const _statuses = [
@@ -32,6 +32,12 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
     MediaStatus.onHold,
     MediaStatus.dropped,
   ];
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   String get _addRoute => switch (widget.category) {
         MediaCategory.movie => '/watch/movies/add',
@@ -45,15 +51,20 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
         MediaCategory.anime => '/watch/anime/$id',
       };
 
+  void _onTabSelected(int index) {
+    setState(() => _selectedTab = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOutCubic,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final currentStatus = _statuses[_selectedTab];
-    final items = ref.watch(mediaByCategoryAndStatus((widget.category, currentStatus)));
-    final filtered = _searchQuery.isEmpty
-        ? items
-        : items
-            .where((m) => m.title.toLowerCase().contains(_searchQuery.toLowerCase()))
-            .toList();
+    final mediaListAsync = ref.watch(mediaListProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -62,25 +73,24 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           color: AppColors.primary,
-          onPressed: () => context.go('/'),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/watch'),
         ),
         title: Text(widget.category.label,
             style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            color: AppColors.primary,
-            onPressed: () => context.push(_addRoute),
-          ),
-        ],
+        centerTitle: false,
+      ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'media_list_fab',
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
+        onPressed: () => SafeTap.run(() => context.push(_addRoute)),
+        child: const Icon(Icons.add_rounded),
       ),
       body: Column(
         children: [
           // ── Search bar ────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.containerPadding, AppSpacing.stackGap, AppSpacing.containerPadding, 0),
+            padding: const EdgeInsets.fromLTRB(16.0, 10.0, 16.0, 0),
             child: Row(
               children: [
                 Expanded(
@@ -98,149 +108,153 @@ class _MediaListScreenState extends ConsumerState<MediaListScreen> {
           ),
           // ── Tab bar ───────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.containerPadding, vertical: AppSpacing.stackGap),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
             child: PillTabBar(
               tabs: _tabs,
               selectedIndex: _selectedTab,
-              onTabSelected: (i) => setState(() => _selectedTab = i),
+              onTabSelected: _onTabSelected,
             ),
           ),
-          // ── List ──────────────────────────────────────────────────────────
+          // ── Swipeable PageView List ───────────────────────────────────────
           Expanded(
-            child: filtered.isEmpty
-                ? EmptyState(
-                    icon: Icons.movie_outlined,
-                    title: 'Nothing here yet',
-                    subtitle: 'Add your first ${widget.category.label.toLowerCase()}',
-                    actionLabel: 'Add',
-                    onAction: () => context.push(_addRoute),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.containerPadding,
-                        0,
-                        AppSpacing.containerPadding,
-                        AppSpacing.groupGap),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.unit * 2),
-                    itemBuilder: (context, i) {
-                      final item = filtered[i];
-                      return _MediaCard(
-                        item: item,
-                        onTap: () => context.push(_detailRoute(item.id)),
+            child: mediaListAsync.when(
+              loading: () => _buildGridShimmer(),
+              error: (err, _) => ErrorStateView(
+                message: err.toString(),
+                onRetry: () => ref.refresh(mediaListProvider),
+              ),
+              data: (_) => RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () async => ref.refresh(mediaListProvider),
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: _statuses.length,
+                  onPageChanged: (i) => setState(() => _selectedTab = i),
+                  itemBuilder: (context, tabIdx) {
+                    final status = _statuses[tabIdx];
+                    final items = ref.watch(mediaByCategoryAndStatus((widget.category, status)));
+                    final filtered = _searchQuery.isEmpty
+                        ? items
+                        : items
+                            .where((m) =>
+                                m.title.toLowerCase().contains(_searchQuery.toLowerCase()))
+                            .toList();
+
+                    if (filtered.isEmpty) {
+                      if (_searchQuery.isNotEmpty) {
+                        return SearchEmptyView(
+                          query: _searchQuery,
+                          onClear: () => setState(() => _searchQuery = ''),
+                        );
+                      }
+                      return EmptyState(
+                        icon: Icons.movie_outlined,
+                        title: 'No ${_tabs[tabIdx].toLowerCase()} items',
+                        subtitle: 'Add your first ${widget.category.label.toLowerCase()}',
+                        actionLabel: 'Add',
+                        onAction: () => SafeTap.run(() => context.push(_addRoute)),
                       );
-                    },
-                  ),
+                    }
+
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = constraints.maxWidth;
+                        final crossAxisCount = width > 600 ? 5 : 3;
+                        final totalSpacing = (crossAxisCount - 1) * 12.0;
+                        final itemWidth = (width - 32.0 - totalSpacing) / crossAxisCount;
+                        final textScaler = MediaQuery.textScalerOf(context);
+                        final metadataHeight = textScaler.scale(48.0);
+                        final posterHeight = itemWidth * 1.48; // standard 2:3 aspect ratio
+                        final itemHeight = posterHeight + 6.0 + metadataHeight;
+                        final childAspectRatio = itemWidth / itemHeight;
+
+                        return GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 80.0),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
+                            crossAxisSpacing: 12.0,
+                            mainAxisSpacing: 16.0,
+                            childAspectRatio: childAspectRatio,
+                          ),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, i) {
+                            final item = filtered[i];
+                            return MediaCard(
+                              item: item,
+                              onTap: () => SafeTap.run(() => context.push(_detailRoute(item.id))),
+                              onDelete: () =>
+                                  ref.read(mediaListProvider.notifier).delete(item.id),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
-}
 
-class _MediaCard extends StatelessWidget {
-  const _MediaCard({required this.item, required this.onTap});
-  final MediaItem item;
-  final VoidCallback onTap;
+  Widget _buildGridShimmer() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = width > 600 ? 5 : 3;
+        final totalSpacing = (crossAxisCount - 1) * 12.0;
+        final itemWidth = (width - 32.0 - totalSpacing) / crossAxisCount;
+        final textScaler = MediaQuery.textScalerOf(context);
+        final metadataHeight = textScaler.scale(48.0);
+        final posterHeight = itemWidth * 1.48;
+        final itemHeight = posterHeight + 6.0 + metadataHeight;
+        final childAspectRatio = itemWidth / itemHeight;
 
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.stackGap),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Poster
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-                child: SizedBox(
-                  width: 96,
-                  height: 144,
-                  child: item.posterUrl != null
-                      ? Image.network(item.posterUrl!, fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const _PosterPlaceholder())
-                      : const _PosterPlaceholder(),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.stackGap),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(item.title,
-                              style: AppTypography.headlineMd,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                        if (item.rating != null) ...[
-                          const SizedBox(width: 8),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.star_rounded,
-                                  color: AppColors.starAmber, size: 16),
-                              const SizedBox(width: 2),
-                              Text(item.rating!.toStringAsFixed(1),
-                                  style: AppTypography.labelMd),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      [
-                        if (item.year != null) item.year.toString(),
-                        if (item.totalEpisodes != null) '${item.totalEpisodes} eps',
-                      ].join(' • '),
-                      style: AppTypography.bodyMdOutline(),
-                    ),
-                    if (item.totalEpisodes != null && item.totalEpisodes! > 0) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Ep ${item.episodesWatched} / ${item.totalEpisodes}',
-                        style: AppTypography.bodyMdVariant(),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: item.genres
-                          .take(2)
-                          .map((g) => TagChip(label: g, primary: item.genres.indexOf(g) == 0))
-                          .toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+        return GridView.builder(
+          padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 80.0),
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 12.0,
+            mainAxisSpacing: 16.0,
+            childAspectRatio: childAspectRatio,
           ),
-        ),
+          itemCount: 6,
+      itemBuilder: (_, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: 70,
+            height: 12,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: 40,
+            height: 10,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+        ],
       ),
     );
-  }
-}
-
-class _PosterPlaceholder extends StatelessWidget {
-  const _PosterPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: AppColors.surfaceContainerHigh,
-      child: Center(child: Icon(Icons.movie_outlined, color: AppColors.outline, size: 32)),
+      },
     );
   }
 }

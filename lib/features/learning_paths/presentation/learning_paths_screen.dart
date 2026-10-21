@@ -2,144 +2,87 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
-import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/utils/debouncer.dart';
 import 'package:my_logs/core/widgets/empty_state.dart';
-import 'package:my_logs/core/widgets/progress_bar.dart';
-import 'package:my_logs/core/widgets/status_chip.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/learning_paths/application/learning_path_providers.dart';
-import 'package:my_logs/features/learning_paths/domain/models/learning_path.dart';
+import 'package:my_logs/features/learning_paths/presentation/widgets/learning_path_card.dart';
+import 'package:my_logs/core/widgets/drawer_menu_button.dart';
+import 'package:my_logs/core/widgets/feature_more_options_button.dart';
 
 class LearningPathsScreen extends ConsumerWidget {
   const LearningPathsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final pathsAsync = ref.watch(learningPathListProvider);
+    final pathsAsync = ref.watch(workspaceFilteredLearningPathsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          color: AppColors.primary,
-          onPressed: () => context.go('/'),
-        ),
+        leading: const DrawerMenuButton(tooltip: 'Open menu'),
         title: Text('Learning Paths',
-            style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
+            style: AppTypography.headlineLgMobile.copyWith(color: AppColors.obsidian)),
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            color: AppColors.primary,
-            onPressed: () => context.push('/learning-paths/add'),
-          ),
+        actions: const [
+          FeatureMoreOptionsButton(featureName: 'Learning Paths'),
         ],
       ),
-      body: pathsAsync.when(
-        loading: () =>
-            const Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2)),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (paths) => paths.isEmpty
-            ? EmptyState(
-                icon: Icons.school_outlined,
-                title: 'No paths yet',
-                subtitle: 'Create your first learning journey',
-                actionLabel: 'New Path',
-                onAction: () => context.push('/learning-paths/add'),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.all(AppSpacing.containerPadding),
-                itemCount: paths.length,
-                separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.stackGap),
-                itemBuilder: (context, i) {
-                  final path = paths[i];
-                  final progress = ref.watch(pathProgressProvider(path.id));
-                  final status = ref.watch(pathStatusProvider(path.id));
-                  return _PathCard(
-                    path: path,
-                    progress: progress,
-                    status: status,
-                    onTap: () => context.push('/learning-paths/${path.id}'),
-                    onDelete: () => ref.read(learningPathListProvider.notifier).delete(path.id),
-                  );
-                },
-              ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'learning_paths_fab',
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
+        onPressed: () => SafeTap.run(() => context.push('/learning-paths/add')),
+        child: const Icon(Icons.add_rounded),
       ),
-    );
-  }
-}
-
-class _PathCard extends StatelessWidget {
-  const _PathCard({
-    required this.path,
-    required this.progress,
-    required this.status,
-    required this.onTap,
-    required this.onDelete,
-  });
-  final LearningPath path;
-  final double progress;
-  final String status;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final completed = path.steps.where((s) => s.isCompleted).length;
-
-    return Material(
-      color: AppColors.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(AppSpacing.radius2Xl),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppSpacing.radius2Xl),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.stackGap),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      path.title,
-                      style: AppTypography.headlineMd,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+      body: pathsAsync.when(
+        loading: () => const ShimmerSkeletonList(
+          itemCount: 3,
+          cardHeight: 110,
+        ),
+        error: (err, _) => ErrorStateView(
+          message: err.toString(),
+          onRetry: () => ref.refresh(learningPathListProvider),
+        ),
+        data: (paths) => RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: () async => ref.refresh(learningPathListProvider),
+          child: paths.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.65,
+                      child: EmptyState(
+                        icon: Icons.school_outlined,
+                        title: 'No paths yet',
+                        subtitle: 'Create your first learning journey',
+                        actionLabel: 'New Path',
+                        onAction: () => SafeTap.run(() => context.push('/learning-paths/add')),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  StatusChip.learningStatus(status),
-                ],
-              ),
-              if (path.description != null) ...[
-                const SizedBox(height: 6),
-                Text(path.description!,
-                    style: AppTypography.bodyMdVariant(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis),
-              ],
-              const SizedBox(height: AppSpacing.stackGap),
-              // Progress bar
-              AppProgressBar(progress: progress),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Text(
-                    '$completed / ${path.steps.length} steps',
-                    style: AppTypography.labelMdVariant(),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '${(progress * 100).round()}%',
-                    style: AppTypography.labelMdPrimary(),
-                  ),
-                ],
-              ),
-            ],
-          ),
+                  ],
+                )
+              : ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  itemCount: paths.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12.0),
+                  itemBuilder: (context, i) {
+                    final path = paths[i];
+                    final progress = ref.watch(pathProgressProvider(path.id));
+                    final status = ref.watch(pathStatusProvider(path.id));
+                    return LearningPathCard(
+                      path: path,
+                      progress: progress,
+                      status: status,
+                      onTap: () => SafeTap.run(() => context.push('/learning-paths/${path.id}')),
+                      onDelete: () => ref.read(learningPathListProvider.notifier).delete(path.id),
+                    );
+                  },
+                ),
         ),
       ),
     );

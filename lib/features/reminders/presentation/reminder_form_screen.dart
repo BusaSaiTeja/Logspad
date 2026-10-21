@@ -4,8 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
 import 'package:my_logs/features/reminders/application/reminder_providers.dart';
 import 'package:my_logs/features/reminders/domain/models/reminder_item.dart';
+import 'package:my_logs/features/reminders/presentation/widgets/reminder_recurrence_selector.dart';
+import 'package:my_logs/features/reminders/presentation/widgets/reminder_time_picker_tile.dart';
 
 class ReminderFormScreen extends ConsumerStatefulWidget {
   const ReminderFormScreen({super.key, this.reminderId});
@@ -18,15 +22,19 @@ class ReminderFormScreen extends ConsumerStatefulWidget {
 class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _titleCtrl;
+  late final TextEditingController _customDaysCtrl;
   DateTime _scheduledTime = DateTime.now().add(const Duration(hours: 1));
   ReminderRecurrence _recurrence = ReminderRecurrence.daily;
   bool _isEnabled = true;
+  bool _isVibrationAlarm = false;
   bool _isEdit = false;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
     _titleCtrl = TextEditingController();
+    _customDaysCtrl = TextEditingController();
     if (reminderId != null) {
       _isEdit = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -34,10 +42,12 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
         final r = items.where((r) => r.id == reminderId).firstOrNull;
         if (r == null) return;
         _titleCtrl.text = r.title;
+        _customDaysCtrl.text = r.customDaysText ?? '';
         setState(() {
           _scheduledTime = r.scheduledTime;
           _recurrence = r.recurrence;
           _isEnabled = r.isEnabled;
+          _isVibrationAlarm = r.isVibrationAlarm;
         });
       });
     }
@@ -48,53 +58,101 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
   @override
   void dispose() {
     _titleCtrl.dispose();
+    _customDaysCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _pickDateTime() async {
+    final now = DateTime.now();
+
+    // For daily and custom repeating reminders, only the time of day matters
+    if (_recurrence == ReminderRecurrence.daily || _recurrence == ReminderRecurrence.custom) {
+      final time = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(_scheduledTime),
+      );
+      if (time == null || !mounted) return;
+      setState(() => _scheduledTime =
+          DateTime(now.year, now.month, now.day, time.hour, time.minute));
+      return;
+    }
+
+    final earliestDate = _scheduledTime.isBefore(now)
+        ? _scheduledTime.subtract(const Duration(days: 1))
+        : now.subtract(const Duration(days: 1));
+
     final date = await showDatePicker(
       context: context,
       initialDate: _scheduledTime,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+      firstDate: earliestDate,
+      lastDate: now.add(const Duration(days: 365 * 5)),
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_scheduledTime),
     );
-    if (time == null) return;
+    if (time == null || !mounted) return;
     setState(() => _scheduledTime =
         DateTime(date.year, date.month, date.day, time.hour, time.minute));
   }
 
   Future<void> _save() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
-    final now = DateTime.now();
-    if (_isEdit) {
-      final existing = (ref.read(reminderListProvider).valueOrNull ?? [])
-          .where((r) => r.id == reminderId)
-          .firstOrNull;
-      if (existing == null) return;
-      await ref.read(reminderListProvider.notifier).updateItem(existing.copyWith(
-            title: _titleCtrl.text.trim(),
-            scheduledTime: _scheduledTime,
-            recurrence: _recurrence,
-            isEnabled: _isEnabled,
-            updatedAt: now,
-          ));
-    } else {
-      await ref.read(reminderListProvider.notifier).add(ReminderItem(
-            id: '',
-            title: _titleCtrl.text.trim(),
-            scheduledTime: _scheduledTime,
-            recurrence: _recurrence,
-            isEnabled: _isEnabled,
-            createdAt: now,
-            updatedAt: now,
-          ));
+    if (_recurrence == ReminderRecurrence.custom) {
+      final days = ReminderWeekdayUtils.parseWeekdays(_customDaysCtrl.text);
+      if (days.isEmpty) {
+        AppSnackBar.showError(context, 'Please select at least one day to repeat');
+        return;
+      }
     }
-    if (mounted) context.pop();
+    setState(() => _isSubmitting = true);
+    final now = DateTime.now();
+    final router = GoRouter.of(context);
+    final customText = _recurrence == ReminderRecurrence.custom
+        ? _customDaysCtrl.text.trim()
+        : null;
+
+    try {
+      if (_isEdit) {
+        final existing = (ref.read(reminderListProvider).valueOrNull ?? [])
+            .where((r) => r.id == reminderId)
+            .firstOrNull;
+        if (existing == null) return;
+        await ref.read(reminderListProvider.notifier).updateItem(existing.copyWith(
+              title: _titleCtrl.text.trim(),
+              scheduledTime: _scheduledTime,
+              recurrence: _recurrence,
+              customDaysText: customText,
+              isEnabled: _isEnabled,
+              isVibrationAlarm: _isVibrationAlarm,
+              updatedAt: now,
+            ));
+      } else {
+        await ref.read(reminderListProvider.notifier).add(ReminderItem(
+              id: '',
+              title: _titleCtrl.text.trim(),
+              scheduledTime: _scheduledTime,
+              recurrence: _recurrence,
+              customDaysText: customText,
+              isEnabled: _isEnabled,
+              isVibrationAlarm: _isVibrationAlarm,
+              createdAt: now,
+              updatedAt: now,
+            ));
+      }
+      if (!mounted) return;
+      AppSnackBar.showSuccess(
+        context,
+        _isEdit ? 'Reminder updated successfully' : 'Reminder scheduled successfully',
+      );
+      router.pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      AppSnackBar.showError(context, 'Failed to save reminder: $e');
+    }
   }
 
   @override
@@ -106,19 +164,60 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           color: AppColors.primary,
-          onPressed: () => context.go('/'),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/reminders'),
         ),
         title: Text(_isEdit ? 'Edit Reminder' : 'New Reminder',
             style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
-        centerTitle: true,
+        centerTitle: false,
         actions: [
-          TextButton(onPressed: _save, child: Text('Save', style: AppTypography.labelMdPrimary())),
+          if (_isEdit && reminderId != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded),
+              color: AppColors.error,
+              onPressed: () async {
+                final confirm = await showAppConfirmationDialog(
+                  context: context,
+                  title: 'Delete Reminder',
+                  message: 'Are you sure you want to delete this reminder?',
+                  confirmLabel: 'Delete',
+                  icon: Icons.delete_outline_rounded,
+                  confirmColor: AppColors.error,
+                );
+                if (confirm == true && context.mounted) {
+                  try {
+                    await ref.read(reminderListProvider.notifier).delete(reminderId!);
+                    if (context.mounted) {
+                      AppSnackBar.showSuccess(context, 'Reminder deleted');
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/reminders');
+                      }
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      AppSnackBar.showError(context, 'Failed to delete reminder: $e');
+                    }
+                  }
+                }
+              },
+            ),
+          TextButton(
+            onPressed: _isSubmitting ? null : _save,
+            child: _isSubmitting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  )
+                : Text('Save', style: AppTypography.labelMdPrimary()),
+          ),
         ],
       ),
       body: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.containerPadding),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           children: [
             Text('Reminder Title', style: AppTypography.labelMdVariant()),
             const SizedBox(height: 6),
@@ -131,58 +230,20 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
             const SizedBox(height: AppSpacing.stackGap),
             Text('Scheduled Time', style: AppTypography.labelMdVariant()),
             const SizedBox(height: 6),
-            GestureDetector(
+            ReminderTimePickerTile(
+              scheduledTime: _scheduledTime,
+              recurrence: _recurrence,
+              customDaysText: _customDaysCtrl.text,
               onTap: _pickDateTime,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.alarm_rounded, color: AppColors.primary, size: 20),
-                    const SizedBox(width: 12),
-                    Text(
-                      '${_scheduledTime.day}/${_scheduledTime.month}/${_scheduledTime.year} '
-                      '${_scheduledTime.hour.toString().padLeft(2, '0')}:${_scheduledTime.minute.toString().padLeft(2, '0')}',
-                      style: AppTypography.bodyLg,
-                    ),
-                  ],
-                ),
-              ),
             ),
             const SizedBox(height: AppSpacing.stackGap),
             Text('Recurrence', style: AppTypography.labelMdVariant()),
             const SizedBox(height: 8),
-            Row(
-              children: ReminderRecurrence.values.map((r) {
-                final isSelected = r == _recurrence;
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: GestureDetector(
-                      onTap: () => setState(() => _recurrence = r),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: isSelected ? AppColors.primary : AppColors.surfaceContainerLow,
-                          borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-                        ),
-                        child: Center(
-                          child: Text(
-                            r.label,
-                            style: AppTypography.labelMd.copyWith(
-                              color: isSelected ? AppColors.onPrimary : AppColors.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+            ReminderRecurrenceSelector(
+              selectedRecurrence: _recurrence,
+              onRecurrenceSelected: (r) => setState(() => _recurrence = r),
+              customTextController: _customDaysCtrl,
+              onCustomTextChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: AppSpacing.stackGap),
             Row(
@@ -195,6 +256,44 @@ class _ReminderFormScreenState extends ConsumerState<ReminderFormScreen> {
                   activeThumbColor: AppColors.primary,
                 ),
               ],
+            ),
+            const SizedBox(height: AppSpacing.stackGap),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
+                boxShadow: AppColors.cardShadow,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.vibration_rounded,
+                    color: _isVibrationAlarm ? AppColors.primary : AppColors.onSurfaceVariant,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Alarm-style vibration', style: AppTypography.bodyLg),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Continuous alarm vibration with a "Stop Reminder" button in the notification',
+                          style: AppTypography.labelMdVariant(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: _isVibrationAlarm,
+                    onChanged: (v) => setState(() => _isVibrationAlarm = v),
+                    activeThumbColor: AppColors.primary,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 32),
           ],

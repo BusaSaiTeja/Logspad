@@ -4,9 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
-import 'package:my_logs/core/widgets/progress_bar.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
+import 'package:my_logs/core/widgets/empty_state.dart';
+import 'package:my_logs/core/widgets/ui_state_views.dart';
 import 'package:my_logs/features/learning_paths/application/learning_path_providers.dart';
 import 'package:my_logs/features/learning_paths/domain/models/learning_path.dart';
+import 'package:my_logs/features/learning_paths/presentation/widgets/path_progress_card.dart';
+import 'package:my_logs/features/learning_paths/presentation/widgets/path_step_tile.dart';
 
 class PathDetailScreen extends ConsumerWidget {
   const PathDetailScreen({super.key, required this.pathId});
@@ -14,13 +19,45 @@ class PathDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final pathsAsync = ref.watch(learningPathListProvider);
     final path = ref.watch(learningPathByIdProvider(pathId));
     final progress = ref.watch(pathProgressProvider(pathId));
 
+    if (pathsAsync.isLoading && path == null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: AppColors.primary,
+            onPressed: () => context.canPop() ? context.pop() : context.go('/learning-paths'),
+          ),
+        ),
+        body: const ShimmerSkeletonList(itemCount: 3, cardHeight: 120),
+      );
+    }
+
     if (path == null) {
       return Scaffold(
-        appBar: AppBar(leading: const BackButton()),
-        body: const Center(child: Text('Path not found')),
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: AppColors.primary,
+            onPressed: () => context.canPop() ? context.pop() : context.go('/learning-paths'),
+          ),
+        ),
+        body: Center(
+          child: EmptyState(
+            icon: Icons.school_outlined,
+            title: 'Learning Path not found',
+            subtitle: 'This path may have been removed or moved.',
+            actionLabel: 'Go to Learning Paths',
+            onAction: () => context.canPop() ? context.pop() : context.go('/learning-paths'),
+          ),
+        ),
       );
     }
 
@@ -34,14 +71,41 @@ class PathDetailScreen extends ConsumerWidget {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           color: AppColors.primary,
-          onPressed: () => context.go('/'),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/learning-paths'),
         ),
         title: Text(
           'Learning Path',
           style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary),
         ),
-        centerTitle: true,
+        centerTitle: false,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline_rounded),
+            color: AppColors.error,
+            onPressed: () async {
+              final confirm = await showAppConfirmationDialog(
+                context: context,
+                title: 'Delete Learning Path',
+                message: 'Are you sure you want to delete this learning path?',
+                confirmLabel: 'Delete',
+                icon: Icons.delete_outline_rounded,
+                confirmColor: AppColors.error,
+              );
+              if (confirm == true && context.mounted) {
+                try {
+                  await ref.read(learningPathListProvider.notifier).delete(pathId);
+                  if (context.mounted) {
+                    AppSnackBar.showSuccess(context, 'Learning path deleted');
+                    context.canPop() ? context.pop() : context.go('/learning-paths');
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    AppSnackBar.showError(context, 'Failed to delete learning path: $e');
+                  }
+                }
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             color: AppColors.primary,
@@ -50,7 +114,7 @@ class PathDetailScreen extends ConsumerWidget {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(AppSpacing.containerPadding),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
         children: [
           Text(path.title, style: AppTypography.display),
           if (path.description != null) ...[
@@ -59,132 +123,33 @@ class PathDetailScreen extends ConsumerWidget {
           ],
           const SizedBox(height: AppSpacing.groupGap),
           // Progress overview
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.stackGap),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceContainerLowest,
-              borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-              border: Border.all(color: AppColors.surfaceContainerHighest),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('$completedCount / ${path.steps.length} steps',
-                        style: AppTypography.headlineMd),
-                    const Spacer(),
-                    Text('${(progress * 100).round()}%',
-                        style: AppTypography.headlineMd.copyWith(color: AppColors.primary)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                AppProgressBar(progress: progress, height: 10),
-              ],
-            ),
+          PathProgressCard(
+            completedCount: completedCount,
+            totalCount: path.steps.length,
+            progress: progress,
           ),
           const SizedBox(height: AppSpacing.groupGap),
           Text('Steps', style: AppTypography.headlineMd),
           const SizedBox(height: AppSpacing.stackGap),
-          ...sortedSteps.asMap().entries.map((e) {
-            final step = e.value;
-            return _StepTile(
-              step: step,
-              onToggle: () =>
-                  ref.read(learningPathListProvider.notifier).toggleStep(pathId, step.id),
-            );
-          }),
+          ...sortedSteps.map((step) => PathStepTile(
+                step: step,
+                onToggle: () async {
+                  try {
+                    await ref.read(learningPathListProvider.notifier).toggleStep(pathId, step.id);
+                    if (context.mounted) {
+                      AppSnackBar.showSuccess(
+                        context,
+                        step.isCompleted ? 'Step marked as incomplete' : 'Step completed!',
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      AppSnackBar.showError(context, 'Failed to update step: $e');
+                    }
+                  }
+                },
+              )),
           const SizedBox(height: 32),
-        ],
-      ),
-    );
-  }
-}
-
-class _StepTile extends StatelessWidget {
-  const _StepTile({required this.step, required this.onToggle});
-  final PathStep step;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.unit * 2),
-      padding: const EdgeInsets.all(AppSpacing.stackGap),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusXl),
-        border: Border.all(
-          color: step.isCompleted ? AppColors.primary.withValues(alpha: 0.3) : AppColors.surfaceContainerHighest,
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Step number / check circle
-          GestureDetector(
-            onTap: onToggle,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: step.isCompleted ? AppColors.primary : Colors.transparent,
-                border: Border.all(
-                  color: step.isCompleted ? AppColors.primary : AppColors.outline,
-                  width: 2,
-                ),
-              ),
-              child: step.isCompleted
-                  ? const Icon(Icons.check_rounded, color: AppColors.onPrimary, size: 16)
-                  : Center(
-                      child: Text(
-                        '${step.order}',
-                        style: AppTypography.labelMd.copyWith(color: AppColors.outline),
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.stackGap),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  step.title,
-                  style: step.isCompleted
-                      ? AppTypography.bodyLg.copyWith(
-                          color: AppColors.outline,
-                          decoration: TextDecoration.lineThrough,
-                          decorationColor: AppColors.outline,
-                        )
-                      : AppTypography.bodyLg,
-                ),
-                if (step.description != null) ...[
-                  const SizedBox(height: 4),
-                  Text(step.description!, style: AppTypography.bodyMdVariant()),
-                ],
-                if (step.resourceUrl != null) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(Icons.link_rounded, size: 14, color: AppColors.primary),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          step.resourceUrl!,
-                          style: AppTypography.bodyMd.copyWith(color: AppColors.primary),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
         ],
       ),
     );

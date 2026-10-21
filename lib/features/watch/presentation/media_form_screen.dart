@@ -1,12 +1,40 @@
+import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:uuid/uuid.dart';
 import 'package:my_logs/core/theme/app_colors.dart';
 import 'package:my_logs/core/theme/app_spacing.dart';
 import 'package:my_logs/core/theme/app_typography.dart';
+import 'package:my_logs/core/widgets/app_confirmation_dialog.dart';
+import 'package:my_logs/core/widgets/app_snackbar.dart';
+import 'package:my_logs/core/widgets/media_letter_placeholder.dart';
 import 'package:my_logs/features/watch/application/media_providers.dart';
+import 'package:my_logs/features/watch/data/anilist_anime_service.dart';
+import 'package:my_logs/features/watch/data/tmdb_service.dart';
 import 'package:my_logs/features/watch/domain/models/media_item.dart';
+import 'package:my_logs/features/watch/presentation/widgets/media_rating_selector.dart';
+import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
+
+class MediaFormSuggestion {
+  const MediaFormSuggestion({
+    required this.title,
+    this.year,
+    this.posterUrl,
+    this.synopsis,
+    this.language,
+    this.genres = const [],
+    this.totalEpisodes,
+  });
+
+  final String title;
+  final int? year;
+  final String? posterUrl;
+  final String? synopsis;
+  final String? language;
+  final List<String> genres;
+  final int? totalEpisodes;
+}
 
 class MediaFormScreen extends ConsumerStatefulWidget {
   const MediaFormScreen({super.key, required this.category, this.itemId});
@@ -27,9 +55,21 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
   late final TextEditingController _posterUrlCtrl;
   late final TextEditingController _totalEpsCtrl;
 
+  final FocusNode _titleFocus = FocusNode();
+
   MediaStatus _status = MediaStatus.planToWatch;
   double? _rating;
   bool _isEdit = false;
+  bool _isSubmitting = false;
+
+  Timer? _debounceTimer;
+  List<MediaFormSuggestion> _suggestions = [];
+  bool _isLoadingSuggestions = false;
+  bool _showNoResultsMsg = false;
+  bool _suggestionDismissed = false;
+
+  final TmdbService _tmdbService = TmdbService();
+  final AniListAnimeService _animeService = AniListAnimeService();
 
   @override
   void initState() {
@@ -44,28 +84,27 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
 
     if (widget.itemId != null) {
       _isEdit = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadItem());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final item = ref.read(mediaByIdProvider(widget.itemId!));
+        if (item == null) return;
+        _titleCtrl.text = item.title;
+        _yearCtrl.text = item.year?.toString() ?? '';
+        _synopsisCtrl.text = item.synopsis ?? '';
+        _genresCtrl.text = item.genres.join(', ');
+        _languageCtrl.text = item.language ?? '';
+        _posterUrlCtrl.text = item.posterUrl ?? '';
+        _totalEpsCtrl.text = item.totalEpisodes?.toString() ?? '';
+        setState(() {
+          _status = item.status;
+          _rating = item.rating;
+        });
+      });
     }
-  }
-
-  void _loadItem() {
-    final item = ref.read(mediaByIdProvider(widget.itemId!));
-    if (item == null) return;
-    _titleCtrl.text = item.title;
-    _yearCtrl.text = item.year?.toString() ?? '';
-    _synopsisCtrl.text = item.synopsis ?? '';
-    _genresCtrl.text = item.genres.join(', ');
-    _languageCtrl.text = item.language ?? '';
-    _posterUrlCtrl.text = item.posterUrl ?? '';
-    _totalEpsCtrl.text = item.totalEpisodes?.toString() ?? '';
-    setState(() {
-      _status = item.status;
-      _rating = item.rating;
-    });
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _titleCtrl.dispose();
     _yearCtrl.dispose();
     _synopsisCtrl.dispose();
@@ -73,11 +112,132 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
     _languageCtrl.dispose();
     _posterUrlCtrl.dispose();
     _totalEpsCtrl.dispose();
+    _titleFocus.dispose();
     super.dispose();
   }
 
+  void _onTitleChanged(String query) {
+    _suggestionDismissed = false;
+    _debounceTimer?.cancel();
+
+    if (query.trim().length < 2) {
+      setState(() {
+        _suggestions = [];
+        _isLoadingSuggestions = false;
+        _showNoResultsMsg = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingSuggestions = true;
+      _showNoResultsMsg = false;
+    });
+
+    _debounceTimer = Timer(const Duration(milliseconds: 450), () async {
+      List<MediaFormSuggestion> results = [];
+      final cleanQ = query.trim().toLowerCase();
+
+      if (widget.category == MediaCategory.anime) {
+        // Query TMDB TV search + AniList search in parallel
+        final tmdbTvFuture = _tmdbService.searchTv(query);
+        final aniListFuture = _animeService.searchAnime(query);
+
+        final searchResponses = await Future.wait([tmdbTvFuture, aniListFuture]);
+        final tmdbTvResults = searchResponses[0] as List<TmdbSearchResult>;
+        final aniListResults = searchResponses[1] as List<AnimeSearchResult>;
+
+        final seenTitles = <String>{};
+
+        for (final m in tmdbTvResults) {
+          final tLower = m.title.toLowerCase();
+          if (seenTitles.add(tLower)) {
+            results.add(MediaFormSuggestion(
+              title: m.title,
+              year: m.year,
+              posterUrl: m.posterUrl,
+              synopsis: m.synopsis,
+              genres: m.genres,
+              language: 'Japanese',
+            ));
+          }
+        }
+
+        for (final a in aniListResults) {
+          final tLower = a.title.toLowerCase();
+          if (seenTitles.add(tLower)) {
+            results.add(MediaFormSuggestion(
+              title: a.title,
+              year: a.year,
+              posterUrl: a.posterUrl,
+              synopsis: a.synopsis,
+              genres: a.genres,
+              language: 'Japanese',
+              totalEpisodes: a.totalEpisodes,
+            ));
+          }
+        }
+
+        // Sort items starting with query first
+        results.sort((a, b) {
+          final startsA = a.title.toLowerCase().startsWith(cleanQ);
+          final startsB = b.title.toLowerCase().startsWith(cleanQ);
+          if (startsA && !startsB) return -1;
+          if (!startsA && startsB) return 1;
+          return 0;
+        });
+      } else {
+        final tmdbResults = await _tmdbService.searchMovies(query);
+        results = tmdbResults
+            .map((m) => MediaFormSuggestion(
+                  title: m.title,
+                  year: m.year,
+                  posterUrl: m.posterUrl,
+                  synopsis: m.synopsis,
+                  genres: m.genres,
+                  language: m.language,
+                ))
+            .toList();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _isLoadingSuggestions = false;
+        _suggestions = results.take(7).toList();
+        _showNoResultsMsg = results.isEmpty && !_suggestionDismissed;
+      });
+    });
+  }
+
+  void _applySuggestion(MediaFormSuggestion result) {
+    _titleFocus.unfocus();
+    setState(() {
+      _titleCtrl.text = result.title;
+      if (result.year != null) _yearCtrl.text = '${result.year}';
+      if (result.posterUrl != null) _posterUrlCtrl.text = result.posterUrl!;
+      if (result.synopsis != null) _synopsisCtrl.text = result.synopsis!;
+      if (result.language != null) _languageCtrl.text = result.language!;
+      if (result.genres.isNotEmpty) _genresCtrl.text = result.genres.join(', ');
+      if (result.totalEpisodes != null) _totalEpsCtrl.text = '${result.totalEpisodes}';
+      _suggestions = [];
+      _isLoadingSuggestions = false;
+      _showNoResultsMsg = false;
+      _suggestionDismissed = true;
+    });
+  }
+
+  void _clearSuggestions() {
+    setState(() {
+      _suggestions = [];
+      _showNoResultsMsg = false;
+      _suggestionDismissed = true;
+    });
+  }
+
   Future<void> _save() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
     final genres = _genresCtrl.text
         .split(',')
         .map((g) => g.trim())
@@ -85,153 +245,343 @@ class _MediaFormScreenState extends ConsumerState<MediaFormScreen> {
         .toList();
     final now = DateTime.now();
 
-    if (_isEdit) {
-      final existing = ref.read(mediaByIdProvider(widget.itemId!));
-      if (existing == null) return;
-      await ref.read(mediaListProvider.notifier).updateItem(
-            existing.copyWith(
-              title: _titleCtrl.text.trim(),
-              status: _status,
-              rating: _rating,
-              posterUrl: _posterUrlCtrl.text.trim().isEmpty ? null : _posterUrlCtrl.text.trim(),
-              year: int.tryParse(_yearCtrl.text),
-              genres: genres,
-              language: _languageCtrl.text.trim().isEmpty ? null : _languageCtrl.text.trim(),
-              synopsis: _synopsisCtrl.text.trim().isEmpty ? null : _synopsisCtrl.text.trim(),
-              totalEpisodes: int.tryParse(_totalEpsCtrl.text),
-              updatedAt: now,
-            ),
-          );
-    } else {
-      await ref.read(mediaListProvider.notifier).add(
-            MediaItem(
-              id: '',
-              title: _titleCtrl.text.trim(),
-              category: widget.category,
-              status: _status,
-              rating: _rating,
-              posterUrl: _posterUrlCtrl.text.trim().isEmpty ? null : _posterUrlCtrl.text.trim(),
-              year: int.tryParse(_yearCtrl.text),
-              genres: genres,
-              language: _languageCtrl.text.trim().isEmpty ? null : _languageCtrl.text.trim(),
-              synopsis: _synopsisCtrl.text.trim().isEmpty ? null : _synopsisCtrl.text.trim(),
-              totalEpisodes: int.tryParse(_totalEpsCtrl.text),
-              createdAt: now,
-              updatedAt: now,
-            ),
-          );
+    final router = GoRouter.of(context);
+
+    try {
+      if (_isEdit && widget.itemId != null) {
+        final existing = ref.read(mediaByIdProvider(widget.itemId!));
+        if (existing == null) return;
+        await ref.read(mediaListProvider.notifier).updateItem(
+              existing.copyWith(
+                title: _titleCtrl.text.trim(),
+                status: _status,
+                rating: _rating,
+                posterUrl: _posterUrlCtrl.text.trim().isEmpty ? null : _posterUrlCtrl.text.trim(),
+                year: int.tryParse(_yearCtrl.text),
+                genres: genres,
+                language: _languageCtrl.text.trim().isEmpty ? null : _languageCtrl.text.trim(),
+                synopsis: _synopsisCtrl.text.trim().isEmpty ? null : _synopsisCtrl.text.trim(),
+                totalEpisodes: int.tryParse(_totalEpsCtrl.text),
+                updatedAt: now,
+              ),
+            );
+      } else {
+        final activeWorkspaceId = ref.read(activeWorkspaceIdProvider).valueOrNull ?? '';
+        await ref.read(mediaListProvider.notifier).add(
+              MediaItem(
+                id: '',
+                workspaceId: activeWorkspaceId,
+                title: _titleCtrl.text.trim(),
+                category: widget.category,
+                status: _status,
+                rating: _rating,
+                posterUrl: _posterUrlCtrl.text.trim().isEmpty ? null : _posterUrlCtrl.text.trim(),
+                year: int.tryParse(_yearCtrl.text),
+                genres: genres,
+                language: _languageCtrl.text.trim().isEmpty ? null : _languageCtrl.text.trim(),
+                synopsis: _synopsisCtrl.text.trim().isEmpty ? null : _synopsisCtrl.text.trim(),
+                totalEpisodes: int.tryParse(_totalEpsCtrl.text),
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
+      }
+      if (!mounted) return;
+      AppSnackBar.showSuccess(
+        context,
+        _isEdit ? 'Media log updated successfully' : 'Added to Watch Hub',
+      );
+      router.pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      AppSnackBar.showError(context, 'Failed to save media log: $e');
     }
-    if (mounted) context.pop();
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirm = await showAppConfirmationDialog(
+      context: context,
+      title: 'Delete Log',
+      message: 'Are you sure you want to delete this log?',
+      confirmLabel: 'Delete',
+      icon: Icons.delete_outline_rounded,
+      confirmColor: AppColors.error,
+    );
+    if (confirm == true && mounted) {
+      final router = GoRouter.of(context);
+      final canPop = router.canPop();
+      try {
+        await ref.read(mediaListProvider.notifier).delete(widget.itemId!);
+        if (mounted) {
+          AppSnackBar.showSuccess(context, 'Media log deleted');
+          canPop ? router.pop() : router.go('/watch');
+        }
+      } catch (e) {
+        if (mounted) {
+          AppSnackBar.showError(context, 'Failed to delete media log: $e');
+        }
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          color: AppColors.primary,
-          onPressed: () => context.go('/'),
-        ),
-        title: Text(_isEdit ? 'Edit ${widget.category.label}' : 'Add ${widget.category.label}',
-            style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary)),
-        centerTitle: true,
-        actions: [
-          TextButton(onPressed: _save, child: Text('Save', style: AppTypography.labelMdPrimary())),
-        ],
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.containerPadding),
-          children: [
-            _FormField(label: 'Title *', controller: _titleCtrl,
-                validator: (v) => v!.isEmpty ? 'Required' : null),
-            _FormField(label: 'Year', controller: _yearCtrl, keyboard: TextInputType.number),
-            _FormField(label: 'Poster URL', controller: _posterUrlCtrl, hint: 'https://...'),
-            _FormField(label: 'Genres', controller: _genresCtrl, hint: 'Sci-Fi, Drama'),
-            _FormField(label: 'Language', controller: _languageCtrl),
-            _FormField(label: 'Synopsis', controller: _synopsisCtrl, maxLines: 4),
-            if (widget.category == MediaCategory.anime)
-              _FormField(label: 'Total Episodes', controller: _totalEpsCtrl,
-                  keyboard: TextInputType.number),
-            const SizedBox(height: AppSpacing.stackGap),
-            Text('Status', style: AppTypography.labelMdVariant()),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<MediaStatus>(
-              initialValue: _status,
-              decoration: const InputDecoration(),
-              onChanged: (s) => setState(() => _status = s!),
-              items: MediaStatus.values
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                  .toList(),
+    return GestureDetector(
+      onTap: () {
+        _titleFocus.unfocus();
+        _clearSuggestions();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: AppColors.primary,
+            onPressed: () => context.canPop() ? context.pop() : context.go('/watch'),
+          ),
+          title: Text(
+            _isEdit ? 'Edit ${widget.category.label}' : 'Add ${widget.category.label}',
+            style: AppTypography.headlineLgMobile.copyWith(color: AppColors.primary),
+          ),
+          centerTitle: false,
+          actions: [
+            if (_isEdit && widget.itemId != null)
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded),
+                color: AppColors.error,
+                onPressed: _confirmDelete,
+              ),
+            TextButton(
+              onPressed: _isSubmitting ? null : _save,
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                    )
+                  : Text('Save', style: AppTypography.labelMdPrimary()),
             ),
-            const SizedBox(height: AppSpacing.stackGap),
-            Text('Rating', style: AppTypography.labelMdVariant()),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                ...List.generate(5, (i) {
-                  final v = i + 1.0;
-                  return GestureDetector(
-                    onTap: () => setState(() => _rating = _rating == v ? null : v),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: Icon(
-                        (_rating ?? 0) >= v ? Icons.star_rounded : Icons.star_outline_rounded,
-                        color: (_rating ?? 0) >= v ? AppColors.starAmber : AppColors.outlineVariant,
-                        size: 32,
-                      ),
-                    ),
-                  );
-                }),
-                if (_rating != null) ...[
-                  const SizedBox(width: 8),
-                  Text('${_rating!.toStringAsFixed(1)}', style: AppTypography.bodyLg),
-                ],
-              ],
-            ),
-            const SizedBox(height: 32),
           ],
+        ),
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.containerPadding),
+            children: [
+              // ── Title + Live Search ───────────────────────────────────────
+              _label('${widget.category.label} Title *'),
+              const SizedBox(height: 6),
+              TextFormField(
+                controller: _titleCtrl,
+                focusNode: _titleFocus,
+                onChanged: _onTitleChanged,
+                textInputAction: TextInputAction.next,
+                validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                decoration: InputDecoration(
+                  hintText: widget.category == MediaCategory.anime
+                      ? 'e.g. Naruto, Attack on Titan, One Piece'
+                      : 'e.g. Inception, Toy Story',
+                  suffixIcon: _isLoadingSuggestions
+                      ? const Padding(
+                          padding: EdgeInsets.all(12.0),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : const Icon(Icons.search_rounded, color: AppColors.outline),
+                ),
+                style: AppTypography.bodyLg,
+              ),
+
+              // ── Suggestion Dropdown ───────────────────────────────────────
+              if (_suggestions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 260),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+                    boxShadow: AppColors.cardShadow,
+                    border: Border.all(color: AppColors.outlineVariant),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      itemCount: _suggestions.length,
+                      separatorBuilder: (_, _) => Divider(
+                        height: 1,
+                        color: AppColors.outline.withValues(alpha: 0.1),
+                      ),
+                      itemBuilder: (_, i) {
+                        final item = _suggestions[i];
+                        final epInfo = item.totalEpisodes != null ? ' • ${item.totalEpisodes} eps' : '';
+                        final genreInfo = item.genres.isNotEmpty ? ' • ${item.genres.take(2).join(', ')}' : '';
+                        final subText = '${item.year ?? ''}$epInfo$genreInfo';
+
+                        return ListTile(
+                          dense: true,
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: SizedBox(
+                              width: 32,
+                              height: 46,
+                              child: (item.posterUrl != null && item.posterUrl!.isNotEmpty)
+                                  ? CachedNetworkImage(
+                                      imageUrl: item.posterUrl!,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, _) => MediaLetterPlaceholder(
+                                        title: item.title,
+                                        fontSize: 16,
+                                      ),
+                                      errorWidget: (_, _, _) => MediaLetterPlaceholder(
+                                        title: item.title,
+                                        fontSize: 16,
+                                      ),
+                                    )
+                                  : MediaLetterPlaceholder(
+                                      title: item.title,
+                                      fontSize: 16,
+                                    ),
+                            ),
+                          ),
+                          title: Text(
+                            item.title,
+                            style: AppTypography.bodyLg.copyWith(fontSize: 14),
+                          ),
+                          subtitle: Text(
+                            subText.isEmpty ? 'Anime / Media' : subText,
+                            style: AppTypography.bodyMdVariant().copyWith(fontSize: 12),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => _applySuggestion(item),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+
+              // ── No Results State with Letter Cover ──────────────────────
+              if (_showNoResultsMsg && _titleCtrl.text.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    border: Border.all(color: AppColors.outlineVariant),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: SizedBox(
+                          width: 34,
+                          height: 48,
+                          child: MediaLetterPlaceholder(
+                            title: _titleCtrl.text,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '"${_titleCtrl.text.trim()}" not found online',
+                              style: AppTypography.bodyMd.copyWith(fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Save manually — it will use this letter monogram poster.',
+                              style: AppTypography.labelMdOutline().copyWith(fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: AppSpacing.stackGap),
+
+              // ── Watch Status ──────────────────────────────────────────────
+              _label('Watch Status'),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<MediaStatus>(
+                key: ValueKey(_status),
+                initialValue: _status,
+                decoration: const InputDecoration(),
+                onChanged: (s) => setState(() => _status = s!),
+                items: MediaStatus.values
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+                    .toList(),
+              ),
+
+              const SizedBox(height: AppSpacing.stackGap),
+
+              // ── Rating (1 - 10) ───────────────────────────────────────────
+              _label('Rating (1 - 10)'),
+              const SizedBox(height: 8),
+              MediaRatingSelector(
+                rating: _rating,
+                onRatingChanged: (r) => setState(() => _rating = r),
+              ),
+
+              const SizedBox(height: AppSpacing.stackGap),
+
+              // ── Details Section (Auto-filled • Editable) ─────────────────
+              _label('${widget.category.label} Details  (auto-filled • editable)'),
+              const SizedBox(height: 12),
+              _field('Year', _yearCtrl, hint: 'e.g. 2010', keyboard: TextInputType.number),
+              _field('Language', _languageCtrl, hint: 'e.g. English, Japanese'),
+              _field('Poster Image URL', _posterUrlCtrl,
+                  hint: 'https://...', keyboard: TextInputType.url),
+              _field('Genres (comma-separated)', _genresCtrl, hint: 'Sci-Fi, Action, Thriller'),
+              if (widget.category == MediaCategory.anime)
+                _field('Total Episodes', _totalEpsCtrl,
+                    hint: 'e.g. 24', keyboard: TextInputType.number),
+              _field('Synopsis', _synopsisCtrl, maxLines: 4, hint: 'Short overview...'),
+
+              const SizedBox(height: 32),
+            ],
+          ),
         ),
       ),
     );
   }
-}
 
-class _FormField extends StatelessWidget {
-  const _FormField({
-    required this.label,
-    required this.controller,
-    this.hint,
-    this.maxLines = 1,
-    this.keyboard = TextInputType.text,
-    this.validator,
-  });
+  Widget _label(String text) => Text(text, style: AppTypography.labelMdVariant());
 
-  final String label;
-  final TextEditingController controller;
-  final String? hint;
-  final int maxLines;
-  final TextInputType keyboard;
-  final String? Function(String?)? validator;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _field(String label, TextEditingController controller,
+      {bool required = false,
+      String? hint,
+      TextInputType? keyboard,
+      int maxLines = 1}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.stackGap),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: AppTypography.labelMdVariant()),
+          _label(label),
           const SizedBox(height: 6),
           TextFormField(
             controller: controller,
-            keyboardType: keyboard,
             maxLines: maxLines,
-            validator: validator,
+            keyboardType: keyboard,
+            validator: required ? (v) => v == null || v.trim().isEmpty ? 'Required' : null : null,
             decoration: InputDecoration(hintText: hint),
             style: AppTypography.bodyLg,
           ),

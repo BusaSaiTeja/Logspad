@@ -1,12 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:my_logs/core/utils/date_utils.dart';
-import 'package:my_logs/features/tasks/data/mock_task_repository.dart';
+import 'package:uuid/uuid.dart';
+import 'package:my_logs/core/services/auth_service.dart';
+import 'package:my_logs/features/tasks/data/firestore_task_repository.dart';
 import 'package:my_logs/features/tasks/domain/models/task_item.dart';
 import 'package:my_logs/features/tasks/domain/task_repository.dart';
+import 'package:my_logs/features/workspaces/application/workspace_providers.dart';
 
 // ── Repository Provider ───────────────────────────────────────────────────────
 final taskRepositoryProvider = Provider<TaskRepository>((ref) {
-  return MockTaskRepository();
+  final authService = ref.watch(authServiceProvider);
+  return FirestoreTaskRepository(authService: authService);
 });
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
@@ -16,69 +19,184 @@ class TaskListNotifier extends AsyncNotifier<List<TaskItem>> {
   @override
   Future<List<TaskItem>> build() async => _repo.getAll();
 
+  /// Optimistically adds a task instantly without waiting for extra network roundtrips.
   Future<void> add(TaskItem item) async {
-    final created = await _repo.add(item);
-    state = AsyncData([...?state.valueOrNull, created]);
+    final current = await future;
+    final id = item.id.isNotEmpty ? item.id : const Uuid().v4();
+    final optimisticItem = item.copyWith(id: id);
+    state = AsyncData([optimisticItem, ...current.where((t) => t.id != id)]);
+
+    try {
+      final savedItem = await _repo.add(optimisticItem);
+      final listNow = state.valueOrNull ?? current;
+      final contains = listNow.any((t) => t.id == id);
+      final updatedList = contains
+          ? listNow.map((t) => t.id == id ? savedItem : t).toList()
+          : [savedItem, ...listNow];
+      state = AsyncData(updatedList);
+    } catch (e) {
+      state = AsyncData(current);
+      rethrow;
+    }
   }
 
+  /// Optimistically updates a task locally and syncs to database.
   Future<void> updateItem(TaskItem item) async {
-    final updated = await _repo.update(item);
-    state = AsyncData(
-      (state.valueOrNull ?? []).map((t) => t.id == updated.id ? updated : t).toList(),
-    );
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    final contains = previous.any((t) => t.id == item.id);
+    final updated = contains
+        ? previous.map((t) => t.id == item.id ? item : t).toList()
+        : [item, ...previous];
+    state = AsyncData(updated);
+
+    try {
+      await _repo.update(item);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 
-  Future<void> delete(String id) async {
-    await _repo.delete(id);
-    state = AsyncData((state.valueOrNull ?? []).where((t) => t.id != id).toList());
-  }
+  final _togglingIds = <String>{};
 
+  /// Optimistically toggles task completion instantly.
   Future<void> toggleComplete(String id) async {
-    final toggled = await _repo.toggleComplete(id);
-    state = AsyncData(
-      (state.valueOrNull ?? []).map((t) => t.id == toggled.id ? toggled : t).toList(),
-    );
+    if (_togglingIds.contains(id)) return;
+    _togglingIds.add(id);
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    final now = DateTime.now();
+
+    state = AsyncData(previous.map((t) {
+      if (t.id == id) {
+        return t.copyWith(
+          isCompleted: !t.isCompleted,
+          updatedAt: now,
+        );
+      }
+      return t;
+    }).toList());
+
+    try {
+      await _repo.toggleComplete(id);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    } finally {
+      _togglingIds.remove(id);
+    }
+  }
+
+  /// Optimistically deletes a task instantly.
+  Future<void> delete(String id) async {
+    final current = await future;
+    final previous = state.valueOrNull ?? current;
+    state = AsyncData(previous.where((t) => t.id != id).toList());
+
+    try {
+      await _repo.delete(id);
+    } catch (e) {
+      state = AsyncData(previous);
+      rethrow;
+    }
   }
 }
 
 final taskListProvider =
     AsyncNotifierProvider<TaskListNotifier, List<TaskItem>>(TaskListNotifier.new);
 
-// ── Derived / Single-source views ─────────────────────────────────────────────
+int _priorityWeight(TaskPriority p) => switch (p) {
+      TaskPriority.high => 0,
+      TaskPriority.medium => 1,
+      TaskPriority.low => 2,
+    };
 
-/// Today's incomplete tasks — single source of truth derived from taskListProvider.
-final todayTasksProvider = Provider<List<TaskItem>>((ref) {
-  final now = DateTime.now();
-  return (ref.watch(taskListProvider).valueOrNull ?? []).where((t) {
-    if (t.dueDate == null) return false;
-    return t.dueDate!.year == now.year &&
-        t.dueDate!.month == now.month &&
-        t.dueDate!.day == now.day;
-  }).toList()
-    ..sort((a, b) => a.priority.index.compareTo(b.priority.index));
-});
-
-/// Upcoming incomplete tasks (after today).
-final upcomingTasksProvider = Provider<List<TaskItem>>((ref) {
-  final now = DateTime.now();
-  final sorted = (ref.watch(taskListProvider).valueOrNull ?? []).where((t) {
-    if (t.dueDate == null) return false;
-    return t.dueDate!.isAfter(now);
-  }).toList()
-    ..sort((a, b) => a.dueDate!.compareTo(b.dueDate!));
-  return sorted;
-});
-
-/// All completed tasks.
-final completedTasksProvider = Provider<List<TaskItem>>((ref) {
+// ── Workspace Filtered Tasks Provider ────────────────────────────────────────
+final workspaceFilteredTasksProvider = Provider<List<TaskItem>>((ref) {
   final tasks = ref.watch(taskListProvider).valueOrNull ?? [];
-  return tasks
-      .where((t) => t.isCompleted)
-      .toList()
-    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  final activeId = ref.watch(activeWorkspaceIdProvider).valueOrNull;
+  final workspaces = ref.watch(workspaceListProvider).valueOrNull ?? [];
+
+  return filterWorkspaceItems(
+    items: tasks,
+    activeWorkspaceId: activeId,
+    allWorkspaces: workspaces,
+  );
 });
 
-/// Today's task count — used on Home screen badge.
-final todayTaskCountProvider = Provider<int>((ref) {
-  return ref.watch(todayTasksProvider).length;
+// ── Derived Providers ────────────────────────────────────────────────────────
+
+// Today's tasks
+final todayTasksProvider = Provider<List<TaskItem>>((ref) {
+  final tasks = ref.watch(workspaceFilteredTasksProvider);
+  final now = DateTime.now();
+  final list = tasks
+      .where((t) =>
+          !t.isCompleted &&
+          t.dueDate != null &&
+          t.dueDate!.year == now.year &&
+          t.dueDate!.month == now.month &&
+          t.dueDate!.day == now.day)
+      .toList();
+
+  list.sort((a, b) => _priorityWeight(a.priority).compareTo(_priorityWeight(b.priority)));
+  return list;
 });
+
+// Upcoming tasks (Future dates or tasks without a date)
+final upcomingTasksProvider = Provider<List<TaskItem>>((ref) {
+  final tasks = ref.watch(workspaceFilteredTasksProvider);
+  final today = DateTime.now();
+  final startOfTomorrow = DateTime(today.year, today.month, today.day + 1);
+  final list = tasks
+      .where((t) =>
+          !t.isCompleted &&
+          (t.dueDate == null ||
+              t.dueDate!.isAfter(startOfTomorrow) ||
+              t.dueDate!.isAtSameMomentAs(startOfTomorrow)))
+      .toList();
+
+  list.sort((a, b) {
+    if (a.dueDate != null && b.dueDate != null) {
+      final cmp = a.dueDate!.compareTo(b.dueDate!);
+      if (cmp != 0) return cmp;
+    } else if (a.dueDate != null && b.dueDate == null) {
+      return -1;
+    } else if (a.dueDate == null && b.dueDate != null) {
+      return 1;
+    }
+    return _priorityWeight(a.priority).compareTo(_priorityWeight(b.priority));
+  });
+  return list;
+});
+
+// Pending tasks (Today + Upcoming)
+final pendingTasksProvider = Provider<List<TaskItem>>((ref) {
+  final today = ref.watch(todayTasksProvider);
+  final upcoming = ref.watch(upcomingTasksProvider);
+  return [...today, ...upcoming];
+});
+
+// Completed tasks
+final completedTasksProvider = Provider<List<TaskItem>>((ref) {
+  final tasks = ref.watch(workspaceFilteredTasksProvider);
+  return tasks.where((t) => t.isCompleted).toList();
+});
+
+// Missed / Overdue tasks
+final missedTasksProvider = Provider<List<TaskItem>>((ref) {
+  final tasks = ref.watch(workspaceFilteredTasksProvider);
+  final today = DateTime.now();
+  final startOfToday = DateTime(today.year, today.month, today.day);
+  final list = tasks
+      .where((t) =>
+          !t.isCompleted &&
+          t.dueDate != null &&
+          t.dueDate!.isBefore(startOfToday))
+      .toList();
+
+  list.sort((a, b) => a.dueDate!.compareTo(b.dueDate!));
+  return list;
+});
+
